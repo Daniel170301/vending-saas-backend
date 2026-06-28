@@ -60,7 +60,21 @@ wss.on('connection', (ws) => {
 app.get('/', (req, res) => {
     res.send('Servidor SaaS de Máquinas Expendedoras - 100% Operativo');
 });
+// ==========================================
+// 4. ENDPOINT DE AUTENTICACIÓN (LOGIN)
+// ==========================================
+app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
 
+    console.log(`[API] Intento de login con el correo: ${email}`);
+
+    // Usuario de prueba para verificar la conexión
+    if (email === 'admin@vending.com' && password === '123456') {
+        res.json({ success: true, message: 'Bienvenido al sistema' });
+    } else {
+        res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos' });
+    }
+});
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
