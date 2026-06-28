@@ -61,18 +61,39 @@ app.get('/', (req, res) => {
     res.send('Servidor SaaS de Máquinas Expendedoras - 100% Operativo');
 });
 // ==========================================
-// 4. ENDPOINT DE AUTENTICACIÓN (LOGIN)
+// 4. ENDPOINT DE AUTENTICACIÓN (LOGIN REAL CON BD)
 // ==========================================
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
-    console.log(`[API] Intento de login con el correo: ${email}`);
+    console.log(`[API] Intento de login en BD con: ${email}`);
 
-    // Usuario de prueba para verificar la conexión
-    if (email === 'admin@vending.com' && password === '123456') {
-        res.json({ success: true, message: 'Bienvenido al sistema' });
-    } else {
-        res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos' });
+    try {
+        // Hacemos la consulta usando parámetros seguros ($1) para evitar inyecciones SQL
+        const result = await pool.query('SELECT * FROM usuarios_duenos WHERE email = $1', [email]);
+
+        // Si no encuentra ningún registro con ese correo
+        if (result.rows.length === 0) {
+            return res.status(401).json({ success: false, message: 'El correo electrónico no está registrado' });
+        }
+
+        const user = result.rows[0];
+
+        // Verificamos si la contraseña coincide
+        // (Nota profesional: En la Fase 5 cambiaremos esto por una comparación encriptada con bcrypt)
+        if (user.password === password) {
+            res.json({ 
+                success: true, 
+                message: 'Bienvenido al sistema SaaS',
+                user: { id: user.id, nombre: user.nombre, email: user.email }
+            });
+        } else {
+            res.status(401).json({ success: false, message: 'La contraseña es incorrecta' });
+        }
+
+    } catch (error) {
+        console.error('Error en la consulta de login:', error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor al autenticar' });
     }
 });
 // ==========================================
