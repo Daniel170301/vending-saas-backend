@@ -128,7 +128,30 @@ app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
         res.status(500).json({ success: false, message: 'Error al simular venta' });
     }
 });
-
+// ==========================================
+// CONFIGURACIÓN DE PAGOS (DASHBOARD)
+// ==========================================
+app.post('/api/config/pagos', async (req, res) => {
+    // Recibimos los datos del formulario frontend
+    const { machine_id, pasarela_tipo, numero_celular, token } = req.body;
+    
+    try {
+        // Actualizamos la máquina con su configuración de pagos
+        await pool.query(
+            `UPDATE maquinas 
+             SET pasarela_tipo = $1, 
+                 numero_celular = $2, 
+                 api_key_privada = $3 
+             WHERE machine_id = $4`,
+            [pasarela_tipo, numero_celular, token, machine_id]
+        );
+        
+        res.json({ success: true, message: "Bóveda de pagos guardada exitosamente" });
+    } catch (error) {
+        console.error("Error al guardar pagos:", error);
+        res.status(500).json({ success: false, message: 'Error interno al guardar' });
+    }
+});
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
