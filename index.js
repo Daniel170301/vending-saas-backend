@@ -99,22 +99,20 @@ app.post('/api/login', async (req, res) => {
 // ==========================================
 // 5. ENDPOINT PARA GUARDAR CONFIGURACIÓN DE PAGOS (CULQI / YAPE)
 // ==========================================
-app.post('/api/save-config', async (req, res) => {
-    // Ahora recibimos también pasarela_tipo desde el frontend
-    const { id_dueno, pasarela_tipo, api_key_publica, api_key_privada } = req.body;
-
+// Busca esta parte en tu index.js y reemplázala:
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
     try {
-        const query = `
-            UPDATE maquinas 
-            SET pasarela_tipo = $1, api_key_publica = $2, api_key_privada = $3 
-            WHERE id_dueno = $4
-        `;
-        await pool.query(query, [pasarela_tipo, api_key_publica, api_key_privada, id_dueno]);
+        // AÑADIMOS 'rol' A LA CONSULTA SQL
+        const result = await pool.query('SELECT id, nombre, email, rol FROM usuarios_duenos WHERE email = $1 AND password = $2', [email, password]);
         
-        res.json({ success: true, message: 'Configuración de pasarela guardada exitosamente' });
+        if (result.rows.length > 0) {
+            res.json({ success: true, user: result.rows[0] }); // Aquí ahora enviamos el rol
+        } else {
+            res.json({ success: false, message: 'Credenciales incorrectas' });
+        }
     } catch (error) {
-        console.error('Error al guardar configuración:', error);
-        res.status(500).json({ success: false, message: 'Error al guardar en la base de datos' });
+        res.status(500).json({ success: false, message: 'Error de servidor' });
     }
 });
 // ==========================================
