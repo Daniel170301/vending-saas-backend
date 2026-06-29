@@ -91,7 +91,8 @@ app.get('/api/machine-status/:machine_id', async (req, res) => {
             res.status(404).json({ success: false, message: "Máquina no encontrada" });
         }
     } catch (error) {
-        res.status(500).json({ success: false, message: 'Error de conexión' });
+        console.error("ERROR EN SQL:", error); // <-- MIRA LA CONSOLA DE RENDER
+        res.status(500).json({ success: false, message: error.message }); // <-- MIRA EL NAVEGADOR
     }
 });
 
