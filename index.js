@@ -65,35 +65,28 @@ app.get('/', (req, res) => {
 // ==========================================
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
-
-    console.log(`[API] Intento de login en BD con: ${email}`);
-
     try {
-        // Hacemos la consulta usando parámetros seguros ($1) para evitar inyecciones SQL
-        const result = await pool.query('SELECT * FROM usuarios_duenos WHERE email = $1', [email]);
-
-        // Si no encuentra ningún registro con ese correo
-        if (result.rows.length === 0) {
-            return res.status(401).json({ success: false, message: 'El correo electrónico no está registrado' });
-        }
-
-        const user = result.rows[0];
-
-        // Verificamos si la contraseña coincide
-        // (Nota profesional: En la Fase 5 cambiaremos esto por una comparación encriptada con bcrypt)
-        if (user.password === password) {
+        // Asegúrate de incluir 'rol' aquí explícitamente
+        const result = await pool.query('SELECT id, nombre, email, rol FROM usuarios_duenos WHERE email = $1 AND password = $2', [email, password]);
+        
+        if (result.rows.length > 0) {
+            // Construimos el objeto usuario explícitamente para asegurar que el rol viaje
+            const user = result.rows[0];
             res.json({ 
                 success: true, 
-                message: 'Bienvenido al sistema SaaS',
-                user: { id: user.id, nombre: user.nombre, email: user.email }
+                user: {
+                    id: user.id,
+                    nombre: user.nombre,
+                    email: user.email,
+                    rol: user.rol // ¡Aquí es donde debe ir!
+                }
             });
         } else {
-            res.status(401).json({ success: false, message: 'La contraseña es incorrecta' });
+            res.json({ success: false, message: 'Credenciales incorrectas' });
         }
-
     } catch (error) {
-        console.error('Error en la consulta de login:', error);
-        res.status(500).json({ success: false, message: 'Error interno del servidor al autenticar' });
+        console.error("Error en login:", error);
+        res.status(500).json({ success: false, message: 'Error de servidor' });
     }
 });
 // ==========================================
