@@ -118,6 +118,19 @@ app.post('/api/save-config', async (req, res) => {
     }
 });
 // ==========================================
+// 6. ENDPOINT PARA OBTENER LAS MÁQUINAS DE UN DUEÑO
+// ==========================================
+app.get('/api/maquinas/:id_dueno', async (req, res) => {
+    const { id_dueno } = req.params;
+    try {
+        const result = await pool.query('SELECT * FROM maquinas WHERE id_dueno = $1', [id_dueno]);
+        res.json({ success: true, maquinas: result.rows });
+    } catch (error) {
+        console.error('Error al obtener máquinas:', error);
+        res.status(500).json({ success: false, message: 'Error al consultar las máquinas' });
+    }
+});
+// ==========================================
 // INICIAR SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
