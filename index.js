@@ -118,12 +118,35 @@ app.post('/api/save-config', async (req, res) => {
     }
 });
 // ==========================================
-// 6. ENDPOINT PARA OBTENER LAS MÁQUINAS DE UN DUEÑO
+// 6. ENDPOINT PARA OBTENER LAS MÁQUINAS (CON MODO SUPERADMIN)
 // ==========================================
 app.get('/api/maquinas/:id_dueno', async (req, res) => {
     const { id_dueno } = req.params;
+    const { rol } = req.query; // Recibimos el rol desde el frontend
+
     try {
-        const result = await pool.query('SELECT * FROM maquinas WHERE id_dueno = $1', [id_dueno]);
+        let query = '';
+        let values = [];
+
+        if (rol === 'superadmin') {
+            // Modo Dios: Ve TODAS las máquinas y a quién le pertenecen
+            query = `
+                SELECT m.*, u.nombre AS nombre_dueno 
+                FROM maquinas m 
+                LEFT JOIN usuarios_duenos u ON m.id_dueno = u.id
+            `;
+        } else {
+            // Modo Cliente: Solo ve las suyas
+            query = `
+                SELECT m.*, u.nombre AS nombre_dueno 
+                FROM maquinas m 
+                LEFT JOIN usuarios_duenos u ON m.id_dueno = u.id 
+                WHERE m.id_dueno = $1
+            `;
+            values = [id_dueno];
+        }
+
+        const result = await pool.query(query, values);
         res.json({ success: true, maquinas: result.rows });
     } catch (error) {
         console.error('Error al obtener máquinas:', error);
