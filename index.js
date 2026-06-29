@@ -25,7 +25,7 @@ pool.connect()
     .catch(err => console.error('Error de conexión a la BD', err));
 
 // ==========================================
-// 2. WEBSOCKETS
+// 2. WEBSOCKETS (COMUNICACIÓN CON ESP32)
 // ==========================================
 const connectedMachines = new Map();
 
@@ -37,14 +37,21 @@ wss.on('connection', (ws) => {
             if (data.type === 'REGISTER') {
                 machineId = data.machine_id;
                 connectedMachines.set(machineId, ws);
+                console.log(`[WS] Máquina ${machineId} conectada en línea.`);
             }
         } catch (error) {}
+    });
+    ws.on('close', () => {
+        if (machineId) connectedMachines.delete(machineId);
     });
 });
 
 // ==========================================
-// 3. API ENDPOINTS
+// 3. API ENDPOINTS (DASHBOARD Y LOGIN)
 // ==========================================
+app.get('/', (req, res) => {
+    res.send('Servidor SaaS de Máquinas Expendedoras - 100% Operativo');
+});
 
 // LOGIN
 app.post('/api/login', async (req, res) => {
@@ -80,14 +87,22 @@ app.get('/api/maquinas/:id_dueno', async (req, res) => {
     }
 });
 
-// CONSULTA DE ESTADO PARA EL ESP32 (¡Esta es la que te faltaba!)
-app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
+// ==========================================
+// 4. RUTAS DEL ESP32 (¡AQUÍ ESTÁ LA MAGIA!)
+// ==========================================
+
+// CONSULTA DE ESTADO PARA EL ESP32 (La que daba Cannot GET)
+app.get('/api/machine-status/:machine_id', async (req, res) => {
     const { machine_id } = req.params;
     try {
-        await pool.query('UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', [machine_id]);
-        res.json({ success: true, message: "Venta simulada, esperando al ESP32" });
+        const result = await pool.query('SELECT dispense_pending FROM maquinas WHERE machine_id = $1', [machine_id]);
+        if (result.rows.length > 0) {
+            res.json({ success: true, pending_dispense: result.rows[0].dispense_pending });
+        } else {
+            res.status(404).json({ success: false, message: "Máquina no encontrada" });
+        }
     } catch (error) {
-        res.status(500).json({ success: false, message: 'Error al simular venta' });
+        res.status(500).json({ success: false, message: 'Error de conexión' });
     }
 });
 
@@ -102,7 +117,21 @@ app.post('/api/confirm-dispense/:machine_id', async (req, res) => {
     }
 });
 
+// SIMULAR UNA VENTA PAGADA
+app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
+    const { machine_id } = req.params;
+    try {
+        await pool.query('UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', [machine_id]);
+        res.json({ success: true, message: "Venta simulada, esperando al ESP32" });
+    } catch (error) {
+        console.error("Error al simular:", error);
+        res.status(500).json({ success: false, message: 'Error al simular venta' });
+    }
+});
+
+// ==========================================
 // INICIAR SERVIDOR
+// ==========================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Servidor corriendo en el puerto ${PORT}`);
