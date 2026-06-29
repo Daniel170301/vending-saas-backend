@@ -97,6 +97,28 @@ app.post('/api/login', async (req, res) => {
     }
 });
 // ==========================================
+// 5. ENDPOINT PARA GUARDAR CONFIGURACIÓN DE PAGOS
+// ==========================================
+app.post('/api/save-config', async (req, res) => {
+    const { id_dueno, api_key_publica, api_key_privada } = req.body;
+
+    try {
+        // Actualizamos la tabla máquinas para el dueño correspondiente
+        // Nota: En un futuro con múltiples máquinas, aquí buscaríamos por id_maquina
+        const query = `
+            UPDATE maquinas 
+            SET api_key_publica = $1, api_key_privada = $2 
+            WHERE id_dueno = $3
+        `;
+        await pool.query(query, [api_key_publica, api_key_privada, id_dueno]);
+        
+        res.json({ success: true, message: 'Configuración guardada exitosamente' });
+    } catch (error) {
+        console.error('Error al guardar configuración:', error);
+        res.status(500).json({ success: false, message: 'Error al guardar en la base de datos' });
+    }
+});
+// ==========================================
 // INICIAR SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
