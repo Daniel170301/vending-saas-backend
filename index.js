@@ -81,18 +81,13 @@ app.get('/api/maquinas/:id_dueno', async (req, res) => {
 });
 
 // CONSULTA DE ESTADO PARA EL ESP32 (¡Esta es la que te faltaba!)
-app.get('/api/machine-status/:machine_id', async (req, res) => {
+app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
     const { machine_id } = req.params;
     try {
-        const result = await pool.query('SELECT dispense_pending FROM maquinas WHERE machine_id = $1', [machine_id]);
-        if (result.rows.length > 0) {
-            res.json({ success: true, pending_dispense: result.rows[0].dispense_pending });
-        } else {
-            res.status(404).json({ success: false, message: "Máquina no encontrada" });
-        }
+        await pool.query('UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', [machine_id]);
+        res.json({ success: true, message: "Venta simulada, esperando al ESP32" });
     } catch (error) {
-        console.error("ERROR EN SQL:", error); // <-- MIRA LA CONSOLA DE RENDER
-        res.status(500).json({ success: false, message: error.message }); // <-- MIRA EL NAVEGADOR
+        res.status(500).json({ success: false, message: 'Error al simular venta' });
     }
 });
 
