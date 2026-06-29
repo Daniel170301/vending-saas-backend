@@ -147,18 +147,14 @@ app.get('/api/maquinas/:id_dueno', async (req, res) => {
 // ==========================================
 // 7. ENDPOINT PARA EL ESP32 (Consulta de estado)
 // ==========================================
-app.get('/api/machine-status/:machine_id', async (req, res) => {
+// Endpoint para confirmar que el producto ya fue entregado
+app.post('/api/confirm-dispense/:machine_id', async (req, res) => {
     const { machine_id } = req.params;
     try {
-        // Por ahora, simularemos que siempre responde "false" (sin pedidos pendientes)
-        // Luego aquí haremos la lógica real de verificar ventas
-        res.json({ 
-            success: true, 
-            pending_dispense: false, 
-            message: "Máquina lista" 
-        });
+        await pool.query('UPDATE maquinas SET dispense_pending = false WHERE machine_id = $1', [machine_id]);
+        res.json({ success: true, message: "Estado de venta reseteado" });
     } catch (error) {
-        res.status(500).json({ success: false, message: 'Error de conexión' });
+        res.status(500).json({ success: false, message: 'Error en confirmación' });
     }
 });
 // ==========================================
