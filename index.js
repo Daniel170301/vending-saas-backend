@@ -145,6 +145,23 @@ app.get('/api/maquinas/:id_dueno', async (req, res) => {
     }
 });
 // ==========================================
+// 7. ENDPOINT PARA EL ESP32 (Consulta de estado)
+// ==========================================
+app.get('/api/machine-status/:machine_id', async (req, res) => {
+    const { machine_id } = req.params;
+    try {
+        // Por ahora, simularemos que siempre responde "false" (sin pedidos pendientes)
+        // Luego aquí haremos la lógica real de verificar ventas
+        res.json({ 
+            success: true, 
+            pending_dispense: false, 
+            message: "Máquina lista" 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error de conexión' });
+    }
+});
+// ==========================================
 // INICIAR SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
