@@ -219,6 +219,51 @@ app.post('/api/generar-pago', async (req, res) => {
 });
 
 // ==========================================
+// WEBHOOK: ESCUCHANDO PAGOS DE CULQI
+// ==========================================
+app.post('/api/webhooks/culqi', async (req, res) => {
+    try {
+        const evento = req.body;
+        console.log("🔔 Alerta de Culqi recibida. Tipo de evento:", evento.type);
+
+        // Verificamos si el evento es un cambio de estado en una orden
+        if (evento.type === 'order.status.changed') {
+            
+            // Culqi envía los detalles de la orden dentro de "data"
+            const orden = typeof evento.data === 'string' ? JSON.parse(evento.data) : evento.data;
+            
+            // Comprobamos si el estado es "pagado"
+            if (orden.state === 'paid') {
+                const numeroOrden = orden.order_number; // Ej: VEND-D4-8A-FC-A5-26-A8-123456789
+                
+                // Extraemos el ID de la máquina del número de orden
+                const partes = numeroOrden.split('-');
+                // Reconstruimos el MAC Address (D4-8A-FC-A5-26-A8)
+                const machine_id = partes.slice(1, 7).join('-'); 
+
+                console.log(`💰 ¡Dinero recibido! Orden: ${numeroOrden} | Máquina: ${machine_id}`);
+
+                // AQUÍ ACTIVAMOS LA MÁQUINA EN LA BASE DE DATOS
+                // Actualizamos el estado a pending_dispense = true para esa máquina
+                await pool.query(
+                    `UPDATE inventario_maquinas 
+                     SET pending_dispense = true 
+                     WHERE machine_id = $1`,
+                    [machine_id]
+                );
+            }
+        }
+
+        // REGLA DE ORO: Siempre responderle 200 OK a Culqi rápido
+        // Si no lo hacemos, Culqi pensará que el servidor está caído y reenviará el mensaje
+        res.status(200).send("Webhook procesado correctamente");
+
+    } catch (error) {
+        console.error("❌ Error procesando el Webhook:", error);
+        res.status(500).send("Error interno en el servidor");
+    }
+});
+// ==========================================
 // INICIAR SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
