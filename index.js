@@ -152,6 +152,72 @@ app.post('/api/config/pagos', async (req, res) => {
         res.status(500).json({ success: false, message: 'Error interno al guardar' });
     }
 });
+
+// ==========================================
+// NUEVO ENDPOINT: GENERAR ORDEN EN CULQI
+// ==========================================
+// Capturamos la llave secreta que acabas de guardar en las variables de entorno
+const CULQI_SECRET_KEY = process.env.CULQI_SECRET_KEY;
+
+app.post('/api/generar-pago', async (req, res) => {
+    // La ESP32 nos enviará qué máquina es y cuánto cuesta el producto
+    const { machine_id, codigo_motor, precio } = req.body;
+
+    try {
+        // 1. Culqi lee los precios en céntimos enteros (Ej: S/ 1.50 = 150)
+        const montoEnCentimos = Math.round(parseFloat(precio) * 100);
+        
+        // 2. Creamos un número de recibo único para esta venta
+        const numeroOrden = `VEND-${machine_id.substring(0,4)}-${Date.now()}`;
+        
+        // 3. Le damos al cliente 5 minutos para escanear y pagar antes de que caduque
+        const tiempoExpiracion = Math.floor(Date.now() / 1000) + (5 * 60);
+
+        // 4. Hacemos la llamada telefónica digital a los servidores de Culqi
+        const respuestaCulqi = await fetch('https://api.culqi.com/v2/orders', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CULQI_SECRET_KEY}` // Tu llave secreta firmando la petición
+            },
+            body: JSON.stringify({
+                "amount": montoEnCentimos,
+                "currency_code": "PEN",
+                "description": `Producto ${codigo_motor} - Expendedora`,
+                "order_number": numeroOrden,
+                "client_details": {
+                    // Datos genéricos porque es una máquina física, no sabemos quién compra
+                    "first_name": "Cliente",
+                    "last_name": "Vending",
+                    "email": "compras@kymatic.com", 
+                    "phone_number": "999999999"
+                },
+                "expiration_date": tiempoExpiracion
+            })
+        });
+
+        const datosOrden = await respuestaCulqi.json();
+
+        if (datosOrden.id) {
+            console.log(`✅ Orden de Culqi creada: ${datosOrden.id}`);
+            
+            // Todo salió bien. Le devolvemos a la ESP32 el OK para que dibuje el QR
+            res.json({ 
+                success: true, 
+                order_id: datosOrden.id,
+                mensaje: "Orden creada con éxito"
+            });
+        } else {
+            console.error("❌ Error de Culqi:", datosOrden);
+            res.status(400).json({ success: false, message: 'El banco rechazó la orden' });
+        }
+
+    } catch (error) {
+        console.error("❌ Error de conexión:", error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+});
+
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
