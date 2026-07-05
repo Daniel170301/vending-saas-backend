@@ -256,32 +256,33 @@ app.get('/api/inventario/:machine_id', async (req, res) => {
 });
 
 // Actualizar precio y stock de un producto
-// Actualizar nombre y precio de un producto (Planograma)
+// Actualizar nombre, precio y STOCK de un producto (Planograma)
 app.put('/api/inventario/actualizar', async (req, res) => {
     try {
-        const { machine_id, codigo_motor, nombre_producto, precio } = req.body;
+        // 1. Ahora también recibimos la variable "stock" desde el Frontend
+        const { machine_id, codigo_motor, nombre_producto, precio, stock } = req.body;
         
-        // 1. Verificamos si el motor ya tiene un registro en la Base de Datos
+        // 2. Verificamos si el motor ya tiene un registro en la Base de Datos
         const motorExiste = await pool.query(
             'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
             [machine_id, codigo_motor]
         );
 
         if (motorExiste.rows.length === 0) {
-            // 2. Si NO existe, lo CREAMOS (INSERT) dejándole un stock inicial de 0
+            // 3. Si NO existe, lo CREAMOS (INSERT) inyectando el stock en el parámetro $5
             await pool.query(
-                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock) VALUES ($1, $2, $3, $4, 0)',
-                [machine_id, codigo_motor, nombre_producto, precio]
+                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock) VALUES ($1, $2, $3, $4, $5)',
+                [machine_id, codigo_motor, nombre_producto, precio, stock]
             );
         } else {
-            // 3. Si YA existe, simplemente lo ACTUALIZAMOS (UPDATE)
+            // 4. Si YA existe, lo ACTUALIZAMOS (UPDATE) agregando "stock = $3"
             await pool.query(
-                'UPDATE inventario SET nombre_producto = $1, precio = $2 WHERE machine_id = $3 AND codigo_motor = $4',
-                [nombre_producto, precio, machine_id, codigo_motor]
+                'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3 WHERE machine_id = $4 AND codigo_motor = $5',
+                [nombre_producto, precio, stock, machine_id, codigo_motor]
             );
         }
         
-        res.json({ success: true, message: 'Producto guardado correctamente' });
+        res.json({ success: true, message: 'Producto y stock guardados correctamente' });
     } catch (error) {
         console.error("❌ Error en DB:", error);
         res.status(500).json({ success: false, message: 'Error guardando inventario' });
