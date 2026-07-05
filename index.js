@@ -243,15 +243,17 @@ app.get('/api/inventario/:machine_id', async (req, res) => {
 });
 
 // Actualizar precio y stock de un producto
+// Actualizar nombre y precio de un producto (Planograma)
 app.put('/api/inventario/actualizar', async (req, res) => {
     try {
-        const { machine_id, codigo_motor, precio, stock } = req.body;
+        const { machine_id, codigo_motor, nombre_producto, precio } = req.body;
         await pool.query(
-            'UPDATE inventario SET precio = $1, stock = $2 WHERE machine_id = $3 AND codigo_motor = $4',
-            [precio, stock, machine_id, codigo_motor]
+            'UPDATE inventario SET nombre_producto = $1, precio = $2 WHERE machine_id = $3 AND codigo_motor = $4',
+            [nombre_producto, precio, machine_id, codigo_motor]
         );
-        res.json({ success: true, message: 'Inventario actualizado correctamente' });
+        res.json({ success: true, message: 'Producto actualizado correctamente' });
     } catch (error) {
+        console.error("Error en DB:", error);
         res.status(500).json({ success: false, message: 'Error actualizando inventario' });
     }
 });
