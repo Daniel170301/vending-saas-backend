@@ -125,13 +125,26 @@ app.get('/api/machine-status/:machine_id', async (req, res) => {
     }
 });
 
-// CONFIRMAR DESPACHO
+// CONFIRMAR DESPACHO Y RESTAR STOCK AUTOMÁTICAMENTE
 app.post('/api/confirm-dispense/:machine_id', async (req, res) => {
     const { machine_id } = req.params;
+    const { codigo_motor } = req.body; // Ahora recibiremos qué motor giró
+
     try {
+        // 1. Reseteamos el estado de venta de la máquina
         await pool.query('UPDATE maquinas SET dispense_pending = false WHERE machine_id = $1', [machine_id]);
-        res.json({ success: true, message: "Estado de venta reseteado" });
+        
+        // 2. Telemetría: Si nos dicen qué motor giró, le restamos 1 al stock
+        if (codigo_motor) {
+            await pool.query(
+                'UPDATE inventario SET stock = stock - 1 WHERE machine_id = $1 AND codigo_motor = $2 AND stock > 0',
+                [machine_id, codigo_motor]
+            );
+        }
+        
+        res.json({ success: true, message: "Venta confirmada y stock actualizado" });
     } catch (error) {
+        console.error("Error confirmando despacho:", error);
         res.status(500).json({ success: false, message: 'Error en confirmación' });
     }
 });
