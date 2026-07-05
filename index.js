@@ -227,6 +227,34 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
         console.error('❌ Error en el Webhook de MP:', error);
     }
 });
+// ==========================================
+// 6. GESTIÓN DE INVENTARIO SAAS
+// ==========================================
+
+// Leer el inventario de una máquina específica
+app.get('/api/inventario/:machine_id', async (req, res) => {
+    try {
+        const { machine_id } = req.params;
+        const result = await pool.query('SELECT * FROM inventario WHERE machine_id = $1 ORDER BY codigo_motor ASC', [machine_id]);
+        res.json({ success: true, inventario: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error cargando inventario' });
+    }
+});
+
+// Actualizar precio y stock de un producto
+app.put('/api/inventario/actualizar', async (req, res) => {
+    try {
+        const { machine_id, codigo_motor, precio, stock } = req.body;
+        await pool.query(
+            'UPDATE inventario SET precio = $1, stock = $2 WHERE machine_id = $3 AND codigo_motor = $4',
+            [precio, stock, machine_id, codigo_motor]
+        );
+        res.json({ success: true, message: 'Inventario actualizado correctamente' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error actualizando inventario' });
+    }
+});
 
 // ==========================================
 // INICIAR SERVIDOR
