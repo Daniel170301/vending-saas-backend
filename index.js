@@ -288,6 +288,29 @@ app.put('/api/inventario/actualizar', async (req, res) => {
         res.status(500).json({ success: false, message: 'Error guardando inventario' });
     }
 });
+// REGISTRO AUTOMÁTICO DE NUEVOS CLIENTES
+app.post('/api/registro', async (req, res) => {
+    try {
+        const { nombre, email, password } = req.body;
+        
+        // Verificamos si el email ya existe
+        const userExists = await pool.query('SELECT * FROM usuarios_duenos WHERE email = $1', [email]);
+        if (userExists.rows.length > 0) {
+            return res.status(400).json({ success: false, message: 'Este correo ya está registrado.' });
+        }
+
+        // Insertamos al nuevo usuario
+        await pool.query(
+            'INSERT INTO usuarios_duenos (nombre, email, password, rol) VALUES ($1, $2, $3, $4)',
+            [nombre, email, password, 'cliente']
+        );
+
+        res.json({ success: true, message: 'Usuario registrado exitosamente.' });
+    } catch (error) {
+        console.error("Error en registro:", error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor.' });
+    }
+});
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
