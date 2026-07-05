@@ -247,17 +247,33 @@ app.get('/api/inventario/:machine_id', async (req, res) => {
 app.put('/api/inventario/actualizar', async (req, res) => {
     try {
         const { machine_id, codigo_motor, nombre_producto, precio } = req.body;
-        await pool.query(
-            'UPDATE inventario SET nombre_producto = $1, precio = $2 WHERE machine_id = $3 AND codigo_motor = $4',
-            [nombre_producto, precio, machine_id, codigo_motor]
+        
+        // 1. Verificamos si el motor ya tiene un registro en la Base de Datos
+        const motorExiste = await pool.query(
+            'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
+            [machine_id, codigo_motor]
         );
-        res.json({ success: true, message: 'Producto actualizado correctamente' });
+
+        if (motorExiste.rows.length === 0) {
+            // 2. Si NO existe, lo CREAMOS (INSERT) dejándole un stock inicial de 0
+            await pool.query(
+                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock) VALUES ($1, $2, $3, $4, 0)',
+                [machine_id, codigo_motor, nombre_producto, precio]
+            );
+        } else {
+            // 3. Si YA existe, simplemente lo ACTUALIZAMOS (UPDATE)
+            await pool.query(
+                'UPDATE inventario SET nombre_producto = $1, precio = $2 WHERE machine_id = $3 AND codigo_motor = $4',
+                [nombre_producto, precio, machine_id, codigo_motor]
+            );
+        }
+        
+        res.json({ success: true, message: 'Producto guardado correctamente' });
     } catch (error) {
-        console.error("Error en DB:", error);
-        res.status(500).json({ success: false, message: 'Error actualizando inventario' });
+        console.error("❌ Error en DB:", error);
+        res.status(500).json({ success: false, message: 'Error guardando inventario' });
     }
 });
-
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
