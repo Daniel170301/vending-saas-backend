@@ -212,8 +212,15 @@ app.post('/api/generar-pago', async (req, res) => {
                     }
                 ],
                 external_reference: referenciaUnica,
-                auto_return: "approved",
-                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`
+
+                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`,
+                // AGREGA ESTAS LÍNEAS PARA SOLUCIONAR EL ERROR:
+                back_urls: {
+                    success: "https://vending-api-server.onrender.com",
+                    failure: "https://vending-api-server.onrender.com",
+                    pending: "https://vending-api-server.onrender.com"
+                }, 
+               auto_return: "approved",
             }
         });
 
