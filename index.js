@@ -6,7 +6,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Importamos Mercado Pago
-const { MercadoPagoConfig, Preference } = require('mercadopago');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -160,16 +160,15 @@ app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 5. NUEVO MOTOR DE MERCADO PAGO SAAS
-// ==========================================
+const { MercadoPagoConfig, Preference } = require('mercadopago');
 
+// ==========================================
+// RUTA: Generar Pago (Backend)
+// ==========================================
 app.post('/api/generar-pago', async (req, res) => {
     try {
-        // La ESP32 ahora solo envía quién es y qué motor se activó
         const { machine_id, codigo_motor } = req.body;
 
-        // Buscamos en la BD todo lo necesario en una sola consulta
         const query = `
             SELECT i.nombre_producto, i.precio, i.stock, u.mercadopago_token 
             FROM inventario i
@@ -183,16 +182,20 @@ app.post('/api/generar-pago', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Producto o máquina no encontrados' });
         }
 
-        const { nombre_producto, precio,stock, mercadopago_token } = dbResult.rows[0];
-// 2. NUEVO: Evitamos vender si no hay stock
+        const { nombre_producto, precio, stock, mercadopago_token } = dbResult.rows[0];
+
+        // Validación de seguridad: Precio y Stock
+        const precioNumerico = parseFloat(precio);
+        if (isNaN(precioNumerico) || precioNumerico <= 0) {
+            return res.status(400).json({ success: false, message: 'Precio inválido' });
+        }
         if (stock <= 0) {
-            return res.status(400).json({ success: false, message: 'Producto agotado en este motor' });
+            return res.status(400).json({ success: false, message: 'Producto agotado' });
         }
         if (!mercadopago_token) {
             return res.status(400).json({ success: false, message: 'Dueño sin configurar Mercado Pago' });
         }
 
-        // Iniciamos Mercado Pago con la llave del cliente específico
         const client = new MercadoPagoConfig({ accessToken: mercadopago_token });
         const preference = new Preference(client);
 
@@ -203,13 +206,13 @@ app.post('/api/generar-pago', async (req, res) => {
                 items: [
                     {
                         title: nombre_producto,
-                        unit_price: Number(precio),
+                        unit_price: precioNumerico,
                         quantity: 1,
                         currency_id: 'PEN'
                     }
                 ],
                 external_reference: referenciaUnica,
-                // Cámbiar esta línea en tu ruta /api/generar-pago:
+                auto_return: "approved",
                 notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`
             }
         });
@@ -226,51 +229,43 @@ app.post('/api/generar-pago', async (req, res) => {
     }
 });
 
-// WEBHOOK DE MERCADO PAGO
-// WEBHOOK DE MERCADO PAGO SAAS
+// ==========================================
+// RUTA: Webhook de Mercado Pago
+// ==========================================
 app.post('/api/webhooks/mercadopago', async (req, res) => {
     try {
-        const evento = req.body;
-        const machine_id = req.query.machine; // Extraemos qué máquina es desde la URL
+        const { type, data } = req.body;
+        const machine_id = req.query.machine;
 
-        // 1. Responder rápido a Mercado Pago (Es obligatorio para que no reenvíen la alerta)
-        res.sendStatus(200); 
+        // Responder rápido para que MP no reintente
+        res.sendStatus(200);
 
-        // Verificamos que sea una alerta de pago y tengamos la máquina identificada
-        if ((evento.type === 'payment' || evento.topic === 'payment') && machine_id) {
-            const paymentId = evento.data ? evento.data.id : evento.resource;
-            
-            // 2. Buscamos el token del dueño de esta máquina específica
-            const maqRes = await pool.query(`
-                SELECT u.mercadopago_token 
-                FROM maquinas m 
-                JOIN usuarios_duenos u ON m.id_dueno = u.id 
-                WHERE m.machine_id = $1
-            `, [machine_id]);
+        if ((type === 'payment' || req.body.topic === 'payment') && machine_id) {
+            const paymentId = data?.id || req.body.id;
 
-            if (maqRes.rows.length === 0 || !maqRes.rows[0].mercadopago_token) {
-                console.error("Webhook: Máquina sin dueño o sin token.");
-                return;
-            }
+            // 1. Obtener token del dueño
+            const maqRes = await pool.query(
+                'SELECT u.mercadopago_token FROM maquinas m JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.machine_id = $1',
+                [machine_id]
+            );
+
+            if (maqRes.rows.length === 0 || !maqRes.rows[0].mercadopago_token) return;
 
             const token = maqRes.rows[0].mercadopago_token;
 
-            // 3. Le preguntamos a Mercado Pago: "¿Este pago es real y está aprobado?"
+            // 2. Verificar pago real con MP
             const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const mpData = await mpResponse.json();
 
-            // 4. Si el pago está aprobado, le damos luz verde a la máquina
+            // 3. Si aprobado, liberar motor
             if (mpData.status === 'approved') {
-                console.log(`✅ Pago ${paymentId} APROBADO. Liberando máquina ${machine_id}...`);
-                
+                console.log(`✅ Pago ${paymentId} APROBADO. Liberando máquina ${machine_id}.`);
                 await pool.query(
-                    'UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', 
+                    'UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1',
                     [machine_id]
                 );
-            } else {
-                console.log(`⚠️ Pago ${paymentId} detectado, pero su estado es: ${mpData.status}`);
             }
         }
     } catch (error) {
