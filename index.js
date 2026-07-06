@@ -209,7 +209,8 @@ app.post('/api/generar-pago', async (req, res) => {
                     }
                 ],
                 external_reference: referenciaUnica,
-                notification_url: 'https://vending-api-server.onrender.com/api/webhooks/mercadopago'
+                // Cámbiar esta línea en tu ruta /api/generar-pago:
+                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`
             }
         });
 
@@ -226,18 +227,51 @@ app.post('/api/generar-pago', async (req, res) => {
 });
 
 // WEBHOOK DE MERCADO PAGO
+// WEBHOOK DE MERCADO PAGO SAAS
 app.post('/api/webhooks/mercadopago', async (req, res) => {
     try {
         const evento = req.body;
-        console.log("🔔 Alerta de Mercado Pago recibida:", evento.type || evento.topic);
-        res.sendStatus(200); // Responder rápido a MP
+        const machine_id = req.query.machine; // Extraemos qué máquina es desde la URL
 
-        if (evento.type === 'payment' || evento.topic === 'payment') {
+        // 1. Responder rápido a Mercado Pago (Es obligatorio para que no reenvíen la alerta)
+        res.sendStatus(200); 
+
+        // Verificamos que sea una alerta de pago y tengamos la máquina identificada
+        if ((evento.type === 'payment' || evento.topic === 'payment') && machine_id) {
             const paymentId = evento.data ? evento.data.id : evento.resource;
-            console.log(`✅ Pago detectado con ID: ${paymentId}`);
             
-            // Simulación temporal: Aquí activaríamos la máquina leyendo el ID de la referencia
-            // await pool.query('UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', [machineId]);
+            // 2. Buscamos el token del dueño de esta máquina específica
+            const maqRes = await pool.query(`
+                SELECT u.mercadopago_token 
+                FROM maquinas m 
+                JOIN usuarios_duenos u ON m.id_dueno = u.id 
+                WHERE m.machine_id = $1
+            `, [machine_id]);
+
+            if (maqRes.rows.length === 0 || !maqRes.rows[0].mercadopago_token) {
+                console.error("Webhook: Máquina sin dueño o sin token.");
+                return;
+            }
+
+            const token = maqRes.rows[0].mercadopago_token;
+
+            // 3. Le preguntamos a Mercado Pago: "¿Este pago es real y está aprobado?"
+            const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const mpData = await mpResponse.json();
+
+            // 4. Si el pago está aprobado, le damos luz verde a la máquina
+            if (mpData.status === 'approved') {
+                console.log(`✅ Pago ${paymentId} APROBADO. Liberando máquina ${machine_id}...`);
+                
+                await pool.query(
+                    'UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1', 
+                    [machine_id]
+                );
+            } else {
+                console.log(`⚠️ Pago ${paymentId} detectado, pero su estado es: ${mpData.status}`);
+            }
         }
     } catch (error) {
         console.error('❌ Error en el Webhook de MP:', error);
