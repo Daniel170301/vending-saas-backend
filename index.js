@@ -211,9 +211,9 @@ app.post('/api/generar-pago', async (req, res) => {
         // 4. Crear la Orden Presencial (QR Dinámico)
         const referenciaUnica = `${machine_id}|${codigo_motor}|${Date.now()}`;
         
-        // NOTA: Para Mercado Pago, cada máquina física es una "Caja" (POS).
-        // Usaremos el machine_id como el ID externo de la caja (external_pos_id).
-        const posId = machine_id; 
+ // NOTA: Para Mercado Pago, cada máquina fisica es una "Caja" (POS)
+        // Usaremos el machine_id como el ID externo de la caja sin guiones.
+        const posId = machine_id.replace(/-/g, ''); // <--- CAMBIA ESTA LÍNEA
 
         const qrResponse = await fetch(`https://api.mercadopago.com/instore/orders/qr/seller/collectors/${userId}/pos/${posId}/qrs`, {
             method: 'POST',
@@ -314,6 +314,7 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
 app.get('/api/magia-caja/:machine_id', async (req, res) => {
     try {
         const { machine_id } = req.params;
+        const idSeguro = machine_id.replace(/-/g, ''); // <-- Quita los guiones
         
         // 1. Obtener Token de tu Base de Datos
         const magRes = await pool.query('SELECT u.mercadopago_token FROM maquinas m JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.machine_id = $1', [machine_id]);
@@ -331,7 +332,7 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
             body: JSON.stringify({
                 name: "Expendedora Sede Kymatic",
                 location: { street_number: "123", street_name: "Principal", city_name: "Lima", state_name: "Lima", latitude: -12.04, longitude: -77.02 },
-                external_id: `loc_${machine_id}`
+                external_id: `loc_${idSeguro}` // <-- Usamos el ID limpio
             })
         });
         const storeData = await storeRes.json();
@@ -341,10 +342,10 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: `Caja Física ${machine_id}`,
+                name: `Caja Física ${idSeguro}`,
                 fixed_amount: true,
                 store_id: storeData.id,
-                external_id: machine_id // <-- ¡Este es el dato vital que la web no te dejaba poner!
+                external_id: idSeguro // <-- Usamos el ID limpio
             })
         });
         const posData = await posRes.json();
@@ -358,6 +359,7 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
         res.json({ error: error.message });
     }
 });
+// ========================================================
 // ========================================================
 // ==========================================
 // 6. GESTIÓN DE INVENTARIO SAAS
