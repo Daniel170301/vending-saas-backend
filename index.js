@@ -325,26 +325,33 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
         const userRes = await fetch('https://api.mercadopago.com/users/me', { headers: { 'Authorization': `Bearer ${token}` }});
         const userData = await userRes.json();
 
-        // 3. Crear un Local forzado por código (Si ya existe, fallará en silencio pero no importa)
+        // 3. Crear un Local forzado por código (AQUÍ CORREGIMOS EL ESTADO)
         const storeRes = await fetch(`https://api.mercadopago.com/users/${userData.id}/stores`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: "Expendedora Sede Kymatic",
-                location: { street_number: "123", street_name: "Principal", city_name: "Lima", state_name: "Lima", latitude: -12.04, longitude: -77.02 },
+                location: { 
+                    street_number: "123", 
+                    street_name: "Principal", 
+                    city_name: "Lima", 
+                    state_name: "Lima Metropolitana", // <--- EL CAMBIO VITAL ESTÁ AQUÍ
+                    latitude: -12.04, 
+                    longitude: -77.02 
+                },
                 external_id: `loc${idSeguro}` 
             })
         });
         const storeData = await storeRes.json();
 
-        // 4. Crear la Caja vinculándola con el external_store_id (EL CAMBIO ESTÁ AQUÍ)
+        // 4. Crear la Caja vinculándola con el external_store_id
         const posRes = await fetch('https://api.mercadopago.com/pos', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: `Caja Fisica ${idSeguro}`,
                 fixed_amount: true,
-                external_store_id: `loc${idSeguro}`, // <--- AHORA USAMOS ESTO
+                external_store_id: `loc${idSeguro}`, 
                 external_id: idSeguro 
             })
         });
@@ -361,7 +368,6 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
     }
 });
 // ========================================================
-// ==========================================
 // 6. GESTIÓN DE INVENTARIO SAAS
 // ==========================================
 
