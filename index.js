@@ -165,11 +165,12 @@ const { MercadoPagoConfig, Preference } = require('mercadopago');
 // ==========================================
 // RUTA: Generar Pago Presencial (QR Dinámico para Yape/Plin)
 // ==========================================
+// RUTA: Generar Pago (Checkout Pro - Universal para Yape/Plin/Tarjetas)
+
 app.post('/api/generar-pago', async (req, res) => {
     try {
         const { machine_id, codigo_motor } = req.body;
 
-        // 1. Buscamos en la BD la info del producto y el token del dueño
         const query = `
             SELECT i.nombre_producto, i.precio, i.stock, u.mercadopago_token 
             FROM inventario i
@@ -180,86 +181,46 @@ app.post('/api/generar-pago', async (req, res) => {
         const dbResult = await pool.query(query, [machine_id, codigo_motor]);
 
         if (dbResult.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Producto o máquina no encontrados' });
+            return res.status(404).json({ success: false, message: 'Producto no encontrado' });
         }
 
         const { nombre_producto, precio, stock, mercadopago_token } = dbResult.rows[0];
 
-        // 2. Validaciones de seguridad
-        const precioNumerico = parseFloat(precio);
-        if (isNaN(precioNumerico) || precioNumerico <= 0) {
-            return res.status(400).json({ success: false, message: 'Precio inválido' });
-        }
-        if (stock <= 0) {
-            return res.status(400).json({ success: false, message: 'Producto agotado' });
-        }
-        if (!mercadopago_token) {
-            return res.status(400).json({ success: false, message: 'Dueño sin configurar Mercado Pago' });
-        }
+        if (stock <= 0) return res.status(400).json({ success: false, message: 'Producto agotado' });
+        if (!mercadopago_token) return res.status(400).json({ success: false, message: 'Dueño sin configurar MP' });
 
-        // 3. Obtener el User ID del dueño (Requerido para la API de Pagos Presenciales)
-        const userResponse = await fetch('https://api.mercadopago.com/users/me', {
-            headers: { 'Authorization': `Bearer ${mercadopago_token}` }
-        });
-        const userData = await userResponse.json();
-        
-        if (!userData.id) {
-            return res.status(400).json({ success: false, message: 'Token de Mercado Pago inválido' });
-        }
-        const userId = userData.id;
-
-        // 4. Crear la Orden Presencial (QR Dinámico)
+        const client = new MercadoPagoConfig({ accessToken: mercadopago_token });
+        const preference = new Preference(client);
         const referenciaUnica = `${machine_id}|${codigo_motor}|${Date.now()}`;
-        
- // NOTA: Para Mercado Pago, cada máquina fisica es una "Caja" (POS)
-        // Usaremos el machine_id como el ID externo de la caja sin guiones.
-        const posId = machine_id.replace(/-/g, ''); // <--- CAMBIA ESTA LÍNEA
 
-        const qrResponse = await fetch(`https://api.mercadopago.com/instore/orders/qr/seller/collectors/${userId}/pos/${posId}/qrs`, {
-            method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${mercadopago_token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
+        const result = await preference.create({
+            body: {
+                items: [{
+                    title: nombre_producto,
+                    unit_price: Number(precio),
+                    quantity: 1,
+                    currency_id: 'PEN'
+                }],
                 external_reference: referenciaUnica,
-                title: "Venta Vending Machine",
-                description: `Compra de ${nombre_producto}`,
-                total_amount: precioNumerico,
-                items: [
-                    {
-                        title: nombre_producto,
-                        unit_price: precioNumerico,
-                        quantity: 1,
-                        unit_measure: "unit",
-                        total_amount: precioNumerico
-                    }
-                ],
-                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`
-            })
+                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`,
+                back_urls: {
+                    success: "https://vending-api-server.onrender.com",
+                    failure: "https://vending-api-server.onrender.com",
+                    pending: "https://vending-api-server.onrender.com"
+                },
+                auto_return: "approved"
+            }
         });
 
-        const qrData = await qrResponse.json();
-
-        // Si Mercado Pago arroja error (ej. La caja no existe)
-        if (!qrResponse.ok) {
-            console.error("❌ Error API QR Dinámico:", qrData);
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Error al generar QR. Asegúrate de haber creado la Caja (POS) en Mercado Pago.',
-                detalle: qrData
-            });
-        }
-
-        // 5. Retornar el string EMVCo a la ESP32
+        // Enviamos el init_point (Enlace web) a la ESP32
         res.json({
             success: true,
-            qr_data: qrData.qr_data, // <-- La ESP32 usará este texto para dibujar el QR
+            qr_url: result.init_point, 
             referencia: referenciaUnica
         });
 
     } catch (error) {
-        console.error('❌ Error generando pago MP:', error);
+        console.error('Error generando pago MP:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
