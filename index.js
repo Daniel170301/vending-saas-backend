@@ -307,6 +307,58 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
         console.error('❌ Error en el Webhook de MP:', error);
     }
 });
+
+// ========================================================
+// RUTA MÁGICA PARA CREAR LA CAJA EN MERCADO PAGO
+// ========================================================
+app.get('/api/magia-caja/:machine_id', async (req, res) => {
+    try {
+        const { machine_id } = req.params;
+        
+        // 1. Obtener Token de tu Base de Datos
+        const magRes = await pool.query('SELECT u.mercadopago_token FROM maquinas m JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.machine_id = $1', [machine_id]);
+        if (magRes.rows.length === 0) return res.json({ error: "Máquina no encontrada en BD" });
+        const token = magRes.rows[0].mercadopago_token;
+
+        // 2. Obtener tu ID de usuario de MP
+        const userRes = await fetch('https://api.mercadopago.com/users/me', { headers: { 'Authorization': `Bearer ${token}` }});
+        const userData = await userRes.json();
+
+        // 3. Crear un Local forzado por código
+        const storeRes = await fetch(`https://api.mercadopago.com/users/${userData.id}/stores`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: "Expendedora Sede Kymatic",
+                location: { street_number: "123", street_name: "Principal", city_name: "Lima", state_name: "Lima", latitude: -12.04, longitude: -77.02 },
+                external_id: `loc_${machine_id}`
+            })
+        });
+        const storeData = await storeRes.json();
+
+        // 4. Crear la Caja con el ID EXACTO que necesitamos
+        const posRes = await fetch('https://api.mercadopago.com/pos', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: `Caja Física ${machine_id}`,
+                fixed_amount: true,
+                store_id: storeData.id,
+                external_id: machine_id // <-- ¡Este es el dato vital que la web no te dejaba poner!
+            })
+        });
+        const posData = await posRes.json();
+
+        res.json({ 
+            success: true, 
+            mensaje: "¡Caja creada exitosamente! El error 404 debería desaparecer.", 
+            caja: posData 
+        });
+    } catch (error) {
+        res.json({ error: error.message });
+    }
+});
+// ========================================================
 // ==========================================
 // 6. GESTIÓN DE INVENTARIO SAAS
 // ==========================================
