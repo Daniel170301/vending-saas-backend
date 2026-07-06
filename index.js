@@ -332,7 +332,7 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
             body: JSON.stringify({
                 name: "Expendedora Sede Kymatic",
                 location: { street_number: "123", street_name: "Principal", city_name: "Lima", state_name: "Lima", latitude: -12.04, longitude: -77.02 },
-                external_id: `loc_${idSeguro}` // <-- Usamos el ID limpio
+                external_id: `loc${idSeguro}` // <-- CORREGIDO: Sin guion bajo, solo locD48AFCA526A8
             })
         });
         const storeData = await storeRes.json();
@@ -342,10 +342,10 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: `Caja Física ${idSeguro}`,
+                name: `Caja Fisica ${idSeguro}`,
                 fixed_amount: true,
                 store_id: storeData.id,
-                external_id: idSeguro // <-- Usamos el ID limpio
+                external_id: idSeguro // <-- ID limpio D48AFCA526A8
             })
         });
         const posData = await posRes.json();
@@ -359,6 +359,7 @@ app.get('/api/magia-caja/:machine_id', async (req, res) => {
         res.json({ error: error.message });
     }
 });
+// ========================================================
 // ========================================================
 // ========================================================
 // ==========================================
