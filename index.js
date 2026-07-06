@@ -171,7 +171,7 @@ app.post('/api/generar-pago', async (req, res) => {
 
         // Buscamos en la BD todo lo necesario en una sola consulta
         const query = `
-            SELECT i.nombre_producto, i.precio, u.mercadopago_token 
+            SELECT i.nombre_producto, i.precio, i.stock, u.mercadopago_token 
             FROM inventario i
             JOIN maquinas m ON i.machine_id = m.machine_id
             JOIN usuarios_duenos u ON m.id_dueno = u.id
@@ -184,7 +184,10 @@ app.post('/api/generar-pago', async (req, res) => {
         }
 
         const { nombre_producto, precio, mercadopago_token } = dbResult.rows[0];
-
+// 2. NUEVO: Evitamos vender si no hay stock
+        if (stock <= 0) {
+            return res.status(400).json({ success: false, message: 'Producto agotado en este motor' });
+        }
         if (!mercadopago_token) {
             return res.status(400).json({ success: false, message: 'Dueño sin configurar Mercado Pago' });
         }
