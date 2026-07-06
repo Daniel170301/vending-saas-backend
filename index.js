@@ -183,7 +183,7 @@ app.post('/api/generar-pago', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Producto o máquina no encontrados' });
         }
 
-        const { nombre_producto, precio, mercadopago_token } = dbResult.rows[0];
+        const { nombre_producto, precio,stock, mercadopago_token } = dbResult.rows[0];
 // 2. NUEVO: Evitamos vender si no hay stock
         if (stock <= 0) {
             return res.status(400).json({ success: false, message: 'Producto agotado en este motor' });
