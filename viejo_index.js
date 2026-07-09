@@ -1,15 +1,15 @@
-const express = require('express');
+
 const http = require('http');
 const WebSocket = require('ws');
-const { Pool } = require('pg');
-const cors = require('cors');
+
+
 require('dotenv').config();
 const mqtt = require('mqtt'); // NUEVO: Importar MQTT
 // Importamos Mercado Pago
 
 
 const app = express();
-const server = http.createServer(app);
+
 const wss = new WebSocket.Server({ server });
 // NUEVO: Conectar el backend al broker MQTT
 const mqttClient = mqtt.connect('mqtt://broker.hivemq.com');
@@ -19,18 +19,7 @@ mqttClient.on('connect', () => {
 app.use(cors());
 app.use(express.json());
 
-// ==========================================
-// 1. CONEXIÓN A BASE DE DATOS SAAS
-// ==========================================
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-});
-
-pool.connect()
-    .then(() => console.log('✅ Conectado a la Base de Datos SaaS exitosamente'))
-    .catch(err => console.error('❌ Error de conexión a la BD', err));
-
+http
 // ==========================================
 // 2. WEBSOCKETS (COMUNICACIÓN CON ESP32)
 // ==========================================
@@ -94,21 +83,7 @@ app.get('/api/maquinas/:id_dueno', async (req, res) => {
     }
 });
 
-// CONFIGURACIÓN DE PAGOS (DASHBOARD)
-app.post('/api/config/pagos', async (req, res) => {
-    // Recibimos los datos del formulario frontend
-    const { id_dueno, token } = req.body; // Ahora el token se guarda por dueño, no por máquina
-    try {
-        await pool.query(
-            `UPDATE usuarios_duenos SET mercadopago_token = $1 WHERE id = $2`,
-            [token, id_dueno]
-        );
-        res.json({ success: true, message: "Llave de Mercado Pago guardada exitosamente" });
-    } catch (error) {
-        console.error("Error al guardar pagos:", error);
-        res.status(500).json({ success: false, message: 'Error interno al guardar' });
-    }
-});
+
 
 // ==========================================
 // 4. RUTAS DEL ESP32 (MANTENIDAS EXACTAMENTE IGUAL)
@@ -166,172 +141,7 @@ app.get('/api/trigger-dispense/:machine_id', async (req, res) => {
 
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 
-// ==========================================
-// RUTA: Generar Pago Presencial (QR Dinámico para Yape/Plin)
-// ==========================================
-// RUTA: Generar Pago (Checkout Pro - Universal para Yape/Plin/Tarjetas)
 
-app.post('/api/generar-pago', async (req, res) => {
-    try {
-        const { machine_id, codigo_motor } = req.body;
-
-        const query = `
-            SELECT i.nombre_producto, i.precio, i.stock, u.mercadopago_token 
-            FROM inventario i
-            JOIN maquinas m ON i.machine_id = m.machine_id
-            JOIN usuarios_duenos u ON m.id_dueno = u.id
-            WHERE i.machine_id = $1 AND i.codigo_motor = $2
-        `;
-        const dbResult = await pool.query(query, [machine_id, codigo_motor]);
-
-        if (dbResult.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Producto no encontrado' });
-        }
-
-        const { nombre_producto, precio, stock, mercadopago_token } = dbResult.rows[0];
-
-        if (stock <= 0) return res.status(400).json({ success: false, message: 'Producto agotado' });
-        if (!mercadopago_token) return res.status(400).json({ success: false, message: 'Dueño sin configurar MP' });
-
-        const client = new MercadoPagoConfig({ accessToken: mercadopago_token });
-        const preference = new Preference(client);
-        const referenciaUnica = `${machine_id}|${codigo_motor}|${Date.now()}`;
-
-        const result = await preference.create({
-            body: {
-                items: [{
-                    title: nombre_producto,
-                    unit_price: Number(precio),
-                    quantity: 1,
-                    currency_id: 'PEN'
-                }],
-                external_reference: referenciaUnica,
-                notification_url: `https://vending-api-server.onrender.com/api/webhooks/mercadopago?machine=${machine_id}`,
-                back_urls: {
-                    success: "https://vending-api-server.onrender.com",
-                    failure: "https://vending-api-server.onrender.com",
-                    pending: "https://vending-api-server.onrender.com"
-                },
-                auto_return: "approved"
-            }
-        });
-
-        // Enviamos el init_point (Enlace web) a la ESP32
-        res.json({
-            success: true,
-            qr_url: result.init_point, 
-            referencia: referenciaUnica
-        });
-
-    } catch (error) {
-        console.error('Error generando pago MP:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ==========================================
-// RUTA: Webhook de Mercado Pago
-// ==========================================
-app.post('/api/webhooks/mercadopago', async (req, res) => {
-    try {
-        const { type, data } = req.body;
-        const machine_id = req.query.machine;
-
-        // Responder rápido para que MP no reintente
-        res.sendStatus(200);
-
-        if ((type === 'payment' || req.body.topic === 'payment') && machine_id) {
-            const paymentId = data?.id || req.body.id;
-
-            // 1. Obtener token del dueño
-            const maqRes = await pool.query(
-                'SELECT u.mercadopago_token FROM maquinas m JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.machine_id = $1',
-                [machine_id]
-            );
-
-            if (maqRes.rows.length === 0 || !maqRes.rows[0].mercadopago_token) return;
-
-            const token = maqRes.rows[0].mercadopago_token;
-
-            // 2. Verificar pago real con MP
-            const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const mpData = await mpResponse.json();
-
-            // 3. Si aprobado, liberar motor
-            if (mpData.status === 'approved') {
-                console.log(`✅ Pago ${paymentId} APROBADO. Liberando máquina ${machine_id}.`);
-                await pool.query(
-                    'UPDATE maquinas SET dispense_pending = true WHERE machine_id = $1',
-                    [machine_id]
-                );
-            }
-        }
-    } catch (error) {
-        console.error('❌ Error en el Webhook de MP:', error);
-    }
-});
-
-// ========================================================
-// RUTA MÁGICA PARA CREAR LA CAJA EN MERCADO PAGO
-// ========================================================
-app.get('/api/magia-caja/:machine_id', async (req, res) => {
-    try {
-        const { machine_id } = req.params;
-        const idSeguro = machine_id.replace(/-/g, ''); // <-- Quita los guiones
-        
-        // 1. Obtener Token de tu Base de Datos
-        const magRes = await pool.query('SELECT u.mercadopago_token FROM maquinas m JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.machine_id = $1', [machine_id]);
-        if (magRes.rows.length === 0) return res.json({ error: "Máquina no encontrada en BD" });
-        const token = magRes.rows[0].mercadopago_token;
-
-        // 2. Obtener tu ID de usuario de MP
-        const userRes = await fetch('https://api.mercadopago.com/users/me', { headers: { 'Authorization': `Bearer ${token}` }});
-        const userData = await userRes.json();
-
-        // 3. Crear un Local forzado por código (AQUÍ CORREGIMOS EL ESTADO)
-        const storeRes = await fetch(`https://api.mercadopago.com/users/${userData.id}/stores`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: "Expendedora Sede Kymatic",
-                location: { 
-                    street_number: "123", 
-                    street_name: "Principal", 
-                    city_name: "Lima", 
-                    state_name: "Lima Metropolitana", // <--- EL CAMBIO VITAL ESTÁ AQUÍ
-                    latitude: -12.04, 
-                    longitude: -77.02 
-                },
-                external_id: `loc${idSeguro}` 
-            })
-        });
-        const storeData = await storeRes.json();
-
-        // 4. Crear la Caja vinculándola con el external_store_id
-        const posRes = await fetch('https://api.mercadopago.com/pos', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: `Caja Fisica ${idSeguro}`,
-                fixed_amount: true,
-                external_store_id: `loc${idSeguro}`, 
-                external_id: idSeguro 
-            })
-        });
-        const posData = await posRes.json();
-
-        res.json({ 
-            success: true, 
-            mensaje: "¡Caja creada exitosamente! El error 404 debería desaparecer.",
-            detalle_local: storeData,
-            caja: posData 
-        });
-    } catch (error) {
-        res.json({ error: error.message });
-    }
-});
 // ========================================================
 // 6. GESTIÓN DE INVENTARIO SAAS
 // ==========================================
@@ -417,11 +227,4 @@ app.post('/api/registro', async (req, res) => {
         console.error("Error en registro:", error);
         res.status(500).json({ success: false, message: 'Error interno del servidor.' });
     }
-});
-// ==========================================
-// INICIAR SERVIDOR
-// ==========================================
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-    console.log(`🚀 Servidor SaaS corriendo en el puerto ${PORT}`);
 });
