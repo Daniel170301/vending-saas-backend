@@ -6,7 +6,7 @@ const obtenerHistorialVentas = async (req, res) => {
 
     try {
         const result = await pool.query(
-            'SELECT codigo_motor, nombre_producto, precio, fecha FROM historial_ventas WHERE machine_id = $1 ORDER BY fecha DESC',
+            'SELECT codigo_motor, nombre_producto, precio,nombre_cliente, fecha FROM historial_ventas WHERE machine_id = $1 ORDER BY fecha DESC',
             [machine_id]
         );
         

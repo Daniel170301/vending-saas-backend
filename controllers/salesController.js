@@ -10,14 +10,14 @@ const confirmarDespacho = async (req, res) => {
         await pool.query('UPDATE maquinas SET dispense_pending = false WHERE machine_id = $1', [machine_id]);
 
         if (codigo_motor) {
-            // 2. Obtenemos los datos del producto ANTES de restar el stock
-            const prodRes = await pool.query(
-                'SELECT nombre_producto, precio, stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
-                [machine_id, codigo_motor]
-            );
+            // 1. Obtenemos el producto y el último cliente que pagó
+            const prodRes = await pool.query('SELECT nombre_producto, precio, stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2', [machine_id, codigo_motor]);
+            const maqRes = await pool.query('SELECT ultimo_cliente FROM maquinas WHERE machine_id = $1', [machine_id]);
+  
 
             if (prodRes.rows.length > 0) {
                 const producto = prodRes.rows[0];
+                const cliente = maqRes.rows.length > 0 ? maqRes.rows[0].ultimo_cliente : 'Desconocido';
                 const nuevoStock = producto.stock - 1;
 
                 // 3. Restamos 1 al stock[cite: 6]
