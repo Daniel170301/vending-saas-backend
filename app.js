@@ -3,6 +3,8 @@ const express = require('express'); //[cite: 4]
 const cors = require('cors'); //[cite: 4]
 const authRoutes = require('./routes/authRoutes'); // Importamos la ruta
 const inventoryRoutes = require('./routes/inventoryRoutes');
+const salesRoutes = require('./routes/salesRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 const app = express(); //[cite: 4]
 
 // Middlewares
@@ -10,7 +12,8 @@ app.use(cors()); //[cite: 4]
 app.use(express.json()); //[cite: 4]
 app.use('/api/auth', authRoutes); // Ahora tu endpoint frontend será /api/auth/login
 app.use('/api/inventario', inventoryRoutes);
-
+app.use('/api/ventas', salesRoutes);
+app.use('/api/reportes', reportRoutes);
 // Ruta base de prueba[cite: 4]
 app.get('/', (req, res) => {
   res.send('Servidor SaaS de Máquinas Expendedoras 100% Operativo (Arquitectura Modular)'); //[cite: 4]
