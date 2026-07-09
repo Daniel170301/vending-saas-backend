@@ -35,5 +35,7 @@ const actualizarInventario = async (req, res) => {
 };
 
 module.exports = {
+    obtenerInventario,
     actualizarInventario
+    
 };
