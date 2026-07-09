@@ -4,14 +4,18 @@ const WebSocket = require('ws');
 const { Pool } = require('pg');
 const cors = require('cors');
 require('dotenv').config();
-
+const mqtt = require('mqtt'); // NUEVO: Importar MQTT
 // Importamos Mercado Pago
 
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-
+// NUEVO: Conectar el backend al broker MQTT
+const mqttClient = mqtt.connect('mqtt://broker.hivemq.com');
+mqttClient.on('connect', () => {
+    console.log('🌐 Backend conectado a HiveMQ exitosamente');
+});
 app.use(cors());
 app.use(express.json());
 
@@ -345,35 +349,50 @@ app.get('/api/inventario/:machine_id', async (req, res) => {
 
 // Actualizar precio y stock de un producto
 // Actualizar nombre, precio y STOCK de un producto (Planograma)
+// Actualizar nombre, precio y STOCK de un producto (Planograma)
 app.put('/api/inventario/actualizar', async (req, res) => {
     try {
-        // 1. Ahora también recibimos la variable "stock" desde el Frontend
-        const { machine_id, codigo_motor, nombre_producto, precio, stock } = req.body;
-        
-        // 2. Verificamos si el motor ya tiene un registro en la Base de Datos
+        // 1. Recibimos las variables desde el Frontend
+        const { machine_id, codigo_motor, nombre_producto, precio, stock } = req.body; //
+
+        // 2. Verificamos si el motor ya tiene un registro en la Base de Datos[cite: 2]
         const motorExiste = await pool.query(
-            'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
-            [machine_id, codigo_motor]
+            'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2', //[cite: 2]
+            [machine_id, codigo_motor] //[cite: 2]
         );
 
         if (motorExiste.rows.length === 0) {
-            // 3. Si NO existe, lo CREAMOS (INSERT) inyectando el stock en el parámetro $5
+            // 3. Si NO existe, lo CREAMOS (INSERT) inyectando el stock en el parámetro $5[cite: 2]
             await pool.query(
-                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock) VALUES ($1, $2, $3, $4, $5)',
-                [machine_id, codigo_motor, nombre_producto, precio, stock]
+                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock) VALUES ($1, $2, $3, $4, $5)', //[cite: 2]
+                [machine_id, codigo_motor, nombre_producto, precio, stock] //[cite: 2]
             );
         } else {
-            // 4. Si YA existe, lo ACTUALIZAMOS (UPDATE) agregando "stock = $3"
+            // 4. Si YA existe, lo ACTUALIZAMOS (UPDATE) agregando "stock = $3"[cite: 2]
             await pool.query(
-                'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3 WHERE machine_id = $4 AND codigo_motor = $5',
-                [nombre_producto, precio, stock, machine_id, codigo_motor]
+                'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3 WHERE machine_id = $4 AND codigo_motor = $5', //[cite: 2]
+                [nombre_producto, precio, stock, machine_id, codigo_motor] //[cite: 2]
             );
         }
+
+        // --- NUEVO: PUBLICAR COMANDO MQTT A LA ESP32 ---
+        // Se construye el formato esperado: EDITAR:codigo:precio
+        const comandoMQTT = `EDITAR:${codigo_motor}:${precio}`;
         
-        res.json({ success: true, message: 'Producto y stock guardados correctamente' });
+        // Topic donde escucha tu ESP32
+       const topic = `jaimez/expendedora/${machine_id}/comandos`;
+        
+        mqttClient.publish(topic, comandoMQTT, () => {
+            console.log(`[MQTT] Precio de motor ${codigo_motor} enviado a la máquina ${machine_id} -> ${comandoMQTT}`);
+        });
+        // -----------------------------------------------
+
+        // Se responde al frontend confirmando el éxito[cite: 2]
+        res.json({ success: true, message: 'Producto y stock guardados correctamente, y ESP32 notificada' });
+
     } catch (error) {
-        console.error("❌ Error en DB:", error);
-        res.status(500).json({ success: false, message: 'Error guardando inventario' });
+        console.error("X Error en DB:", error); //[cite: 2]
+        res.status(500).json({ success: false, message: 'Error guardando inventario' }); //[cite: 2]
     }
 });
 // REGISTRO AUTOMÁTICO DE NUEVOS CLIENTES
