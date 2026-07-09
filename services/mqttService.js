@@ -17,7 +17,13 @@ const enviarComandoPrecio = (machine_id, codigo_motor, precio) => {
         console.log(`[MQTT] Precio enviado a la máquina ${machine_id} -> ${comandoMQTT}`);
     });
 };
-
+// Agrega esto debajo de tu función 'enviarComandoPrecio'
+const publicarMensaje = (topic, mensaje) => {
+    mqttClient.publish(topic, mensaje, () => {
+        console.log(`[MQTT] Mensaje publicado en ${topic} -> ${mensaje}`);
+    });
+};
 module.exports = {
-    enviarComandoPrecio
+    enviarComandoPrecio,
+    publicarMensaje // <-- NUEVO
 };
