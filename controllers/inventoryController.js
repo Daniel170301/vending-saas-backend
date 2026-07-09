@@ -1,7 +1,16 @@
 // controllers/inventoryController.js
 const pool = require('../config/database');
 const mqttService = require('../services/mqttService');
-
+// 1. DEFINE LA FUNCIÓN AQUÍ
+const obtenerInventario = async (req, res) => {
+    const { machine_id } = req.params;
+    try {
+        const result = await pool.query('SELECT * FROM inventario WHERE machine_id = $1', [machine_id]);
+        res.json({ success: true, inventario: result.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error al obtener inventario' });
+    }
+};
 const actualizarInventario = async (req, res) => {
     try {
         const { machine_id, codigo_motor, nombre_producto, precio, stock } = req.body;
