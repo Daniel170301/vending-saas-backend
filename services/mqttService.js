@@ -12,9 +12,8 @@ mqttClient.on('connect', () => {
 const enviarComandoPrecio = (machine_id, codigo_motor, precio) => {
     // 1. Usamos un espacio como separador para respetar el substring(10) del ESP32
     const comandoMQTT = `EDITAR:${codigo_motor} ${precio}`;
-    
-    // 2. Usamos el tópico exacto que tu ESP32 está escuchando actualmente
-    const topic = `jaimez/expendedora/comandos`;
+// Usamos el tópico dinámico que incluye el ID de la máquina
+    const topic = `jaimez/expendedora/${machine_id}/comandos`;
     
     mqttClient.publish(topic, comandoMQTT, () => {
         console.log(`[MQTT] Precio enviado a la máquina ${machine_id} -> ${comandoMQTT}`);
