@@ -4,6 +4,9 @@ const getDashboardMetrics = async (req, res) => {
     try {
         // En el siguiente paso reemplazaremos esto con consultas reales a PostgreSQL (SUM, COUNT, etc.)
         // Por ahora, inyectamos datos de prueba para verificar la conexión con el panel de Lovable.
+        const usuarioSolicitante = req.query.user;
+
+        console.log(`Petición de dashboard recibida para el usuario: ${usuarioSolicitante}`);
         const dashboardData = {
             today: 125.50,
             week: 850.20,
