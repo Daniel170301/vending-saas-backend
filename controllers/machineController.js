@@ -1,26 +1,39 @@
 // controllers/machineController.js
-const pool = require('../config/database');
+const pool = require('../config/db');
 
-const obtenerMaquinas = async (req, res) => {
-    const { id_dueno } = req.params;
+const getMachines = async (req, res) => {
     try {
-        const userResult = await pool.query('SELECT rol FROM usuarios_duenos WHERE id = $1', [id_dueno]);
-        
-        if (userResult.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+        const usuarioSolicitante = req.query.user;
+
+        if (!usuarioSolicitante || usuarioSolicitante === 'desconocido') {
+            return res.json([]); // Si no hay usuario, devolvemos un arreglo vacío
         }
-        
-        const rolUsuario = userResult.rows[0].rol;
-        let query = rolUsuario === 'superadmin'
-            ? 'SELECT m.*, u.nombre AS nombre_dueno FROM maquinas m LEFT JOIN usuarios_duenos u ON m.id_dueno = u.id'
-            : 'SELECT m.*, u.nombre AS nombre_dueno FROM maquinas m LEFT JOIN usuarios_duenos u ON m.id_dueno = u.id WHERE m.id_dueno = $1';
-            
-        const result = await pool.query(query, rolUsuario === 'superadmin' ? [] : [id_dueno]);
-        res.json({ success: true, maquinas: result.rows });
+
+        console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
+
+        // Consulta SQL: Unimos las tablas para traer solo las máquinas de este dueño
+        const query = `
+            SELECT 
+                m.machine_id AS id,
+                m.machine_id AS name, -- Usamos la MAC como nombre temporal si no hay columna nombre
+                m.ubicacion AS location,
+                m.numero_celular AS phone,
+                'online' AS status -- Temporalmente simulamos que está online
+            FROM maquinas m
+            JOIN usuarios_duenos u ON m.id_dueno = u.id
+            WHERE u.email = $1;
+        `;
+
+        const resultado = await pool.query(query, [usuarioSolicitante]);
+
+        // Devolvemos el arreglo de máquinas al frontend
+        res.json(resultado.rows);
     } catch (error) {
-        console.error("Error al consultar máquinas:", error);
-        res.status(500).json({ success: false, message: 'Error al consultar máquinas' });
+        console.error("Error obteniendo máquinas:", error);
+        res.status(500).json({ success: false, message: "Error del servidor" });
     }
 };
 
-module.exports = { obtenerMaquinas };
+module.exports = {
+    getMachines
+};

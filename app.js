@@ -17,7 +17,7 @@ app.use('/api/auth', authRoutes); // Ahora tu endpoint frontend será /api/auth/
 app.use('/api/inventario', inventoryRoutes);
 app.use('/api/ventas', salesRoutes);
 app.use('/api/reportes', reportRoutes);
-app.use('/api/maquinas', machineRoutes);
+app.use('/api/machines', machineRoutes);
 app.use('/api/webhook/yape', yapeRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 // Ruta base de prueba[cite: 4]

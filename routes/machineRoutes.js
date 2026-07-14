@@ -1,9 +1,9 @@
 // routes/machineRoutes.js
 const express = require('express');
 const router = express.Router();
-const machineController = require('../controllers/machineController');
+const { getMachines } = require('../controllers/machineController');
 
-// Ruta: GET /api/maquinas/:id_dueno
-router.get('/:id_dueno', machineController.obtenerMaquinas);
+// Esta ruta será accesible en: /api/machines
+router.get('/', getMachines);
 
 module.exports = router;
