@@ -1,9 +1,9 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
+const { login } = require('../controllers/authController');
 
-// La ruta será /api/auth/login
-router.post('/login', authController.login);
+// Esta ruta será accesible por método POST en: /api/auth/login
+router.post('/login', login);
 
 module.exports = router;
