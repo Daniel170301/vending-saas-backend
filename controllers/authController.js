@@ -1,5 +1,5 @@
 // controllers/authController.js
-const pool = require('../config/db');
+const pool = require('../config/database');
 const jwt = require('jsonwebtoken');
 
 const login = async (req, res) => {

@@ -1,5 +1,5 @@
 // controllers/dashboardController.js
-const pool = require('../config/db'); // <-- Ajusta esta ruta si tu archivo de conexión se llama diferente
+const pool = require('../config/database'); // <-- Ajusta esta ruta si tu archivo de conexión se llama diferente
 
 const getDashboardMetrics = async (req, res) => {
     try {

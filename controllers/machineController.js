@@ -1,5 +1,5 @@
 // controllers/machineController.js
-const pool = require('../config/db');
+const pool = require('../config/database');
 
 const getMachines = async (req, res) => {
     try {
