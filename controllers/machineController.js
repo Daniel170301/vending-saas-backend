@@ -48,7 +48,49 @@ const getMachines = async (req, res) => {
         res.status(500).json({ success: false, message: "Error del servidor" });
     }
 };
+const updateMachine = async (req, res) => {
+    try {
+        const { id } = req.params; // Esta es la MAC (machine_id) que viene en la URL
+        const data = req.body;     // Estos son los datos que enviaste desde React
 
+        const query = `
+            UPDATE maquinas 
+            SET 
+                name = $1,
+                code = $2,
+                location = $3,
+                coin_base = $4,
+                brand = $5,
+                model = $6,
+                plate = $7,
+                coin_brand = $8,
+                coin_plate = $9,
+                bill_enabled = $10,
+                bill_brand = $11,
+                bill_model = $12,
+                bill_plate = $13,
+                layout = $14
+            WHERE machine_id = $15
+        `;
+        
+        const values = [
+            data.name, data.code, data.location, data.coin_base,
+            data.brand, data.model, data.plate, data.coin_brand, data.coin_plate,
+            data.bill_enabled, data.bill_brand, data.bill_model, data.bill_plate,
+            data.layout, id
+        ];
+
+        await pool.query(query, values);
+        
+        res.json({ success: true, message: "Máquina actualizada correctamente" });
+    } catch (error) {
+        console.error("Error al actualizar la máquina:", error);
+        res.status(500).json({ success: false, message: "Error interno del servidor" });
+    }
+};
+
+// Recuerda exportarla al final del archivo:
 module.exports = {
-    getMachines
+    getMachines,
+    updateMachine // <-- Agrega esto
 };
