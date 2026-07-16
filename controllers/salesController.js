@@ -50,7 +50,26 @@ const confirmarDespacho = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error interno en la confirmación' });
     }
 };
-
+// =========================================================================
+// NUEVA FUNCIÓN: Obtener el historial para el panel del Frontend
+// =========================================================================
+const obtenerHistorialVentas = async (req, res) => {
+  try {
+    const query = `
+      SELECT id, machine_id, codigo_motor, nombre_producto, precio, fecha, nombre_cliente 
+      FROM historial_ventas 
+      ORDER BY fecha DESC 
+      LIMIT 100
+    `;
+    const { rows } = await pool.query(query);
+    
+    res.json({ success: true, ventas: rows });
+  } catch (error) {
+    console.error("Error al obtener historial de ventas:", error);
+    res.status(500).json({ success: false, message: "Error del servidor" });
+  }
+};
 module.exports = {
-    confirmarDespacho
+    confirmarDespacho,
+  obtenerHistorialVentas
 };
