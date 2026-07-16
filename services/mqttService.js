@@ -36,17 +36,7 @@ mqttClient.on('message', async (topic, message) => {
 
             if (result.rowCount > 0) {
                 console.log(`✅ ¡Venta física confirmada! Máquina ${machine_id}, Motor ${codigoMotor}. Nuevo stock: ${result.rows[0].stock}`);
-                // 2. NUEVO: REGISTRAR EN EL HISTORIAL DE VENTAS
-                    try {
-                        await pool.query(
-                            `INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio) 
-                            VALUES ($1, $2, $3, $4)`,
-                            [machine_id, codigoMotor, producto.nombre_producto, producto.precio]
-                        );
-                        console.log("✅ Venta registrada en historial_ventas");
-                    } catch (dbErr) {
-                        console.error("❌ Error al insertar en historial_ventas:", dbErr);
-                    }
+                
                 // Si hay alguien conectado en la web, le avisamos que actualice su pantalla
                 if (global.io) {
                 global.io.emit('actualizacionStock', {
