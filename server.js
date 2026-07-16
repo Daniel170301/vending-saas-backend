@@ -2,13 +2,13 @@
 const http = require('http');
 const WebSocket = require('ws');
 require('dotenv').config();
-// ¡Esta es la línea que falta o que está mal escrita!
 const { Server } = require('socket.io');
-// Importamos nuestra app de Express
 const app = require('./app');
+
 
 // Creamos el servidor HTTP
 const server = http.createServer(app);
+
 // Configuramos Socket.IO y permitimos que Vercel se conecte (CORS)
 const io = new Server(server, {
   cors: {
@@ -24,9 +24,38 @@ io.on('connection', (socket) => {
   console.log('⚡ Nuevo panel web conectado:', socket.id);
 });
 
+// 1. DEFINES EL PORT AQUÍ (Antes de usarlo)
+const PORT = process.env.PORT || 3000;
+// 2. Configuración de WebSockets (para las máquinas físicas)
+const wss = new WebSocket.Server({ server });
+const connectedMachines = new Map();
 
+wss.on('connection', (ws) => {
+  let machineId = null;
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.type === 'REGISTER') {
+        machineId = data.machine_id;
+        connectedMachines.set(machineId, ws);
+        console.log(`[WS] Máquina ${machineId} conectada en línea.`);
+      }
+    } catch (error) {
+      console.error('Error procesando mensaje de WS:', error);
+    }
+  });
+  ws.on('close', () => {
+    if (machineId) {
+        connectedMachines.delete(machineId);
+        console.log(`[WS] Máquina ${machineId} desconectada.`);
+    }
+  });
+});
+
+// 3. Inicio del Servidor (Una sola vez)
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`Servidor SaaS corriendo en el puerto ${PORT}`);
 });
 // ==========================================
 // CONFIGURACIÓN DE WEBSOCKETS (COMUNICACIÓN CON ESP32)
@@ -62,7 +91,6 @@ wss.on('connection', (ws) => {
 // ==========================================
 // INICIAR SERVIDOR
 // ==========================================
-const PORT = process.env.PORT || 10000;
 
 server.listen(PORT, () => {
   console.log(`Servidor SaaS corriendo en el puerto ${PORT}`);
