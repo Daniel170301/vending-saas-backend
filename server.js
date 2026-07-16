@@ -2,7 +2,8 @@
 const http = require('http');
 const WebSocket = require('ws');
 require('dotenv').config();
-
+// ¡Esta es la línea que falta o que está mal escrita!
+const { Server } = require('socket.io');
 // Importamos nuestra app de Express
 const app = require('./app');
 
