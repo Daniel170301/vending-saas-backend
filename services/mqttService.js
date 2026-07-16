@@ -1,6 +1,6 @@
 // services/mqttService.js
 const mqtt = require('mqtt');
-
+const pool = require('../config/database'); // <-- ¡ESTA ES LA LÍNEA QUE FALTA!
 // Conectamos al broker
 const mqttClient = mqtt.connect('mqtt://broker.hivemq.com');
 
