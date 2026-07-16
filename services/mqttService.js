@@ -10,13 +10,21 @@ mqttClient.on('connect', () => {
 
 // Función reutilizable para enviar el cambio de precio
 const enviarComandoPrecio = (machine_id, codigo_motor, precio) => {
-    // 1. Usamos un espacio como separador para respetar el substring(10) del ESP32
     const comandoMQTT = `EDITAR:${codigo_motor} ${precio}`;
-// Usamos el tópico dinámico que incluye el ID de la máquina
     const topic = `jaimez/expendedora/${machine_id}/comandos`;
     
     mqttClient.publish(topic, comandoMQTT, () => {
         console.log(`[MQTT] Precio enviado a la máquina ${machine_id} -> ${comandoMQTT}`);
+    });
+};
+
+// NUEVA FUNCIÓN: Enviar pago dinámico por MAC
+const enviarComandoPago = (machine_id, monto) => {
+    const comandoMQTT = `PAGO:${monto}`;
+    const topic = `jaimez/expendedora/${machine_id}/comandos`;
+    
+    mqttClient.publish(topic, comandoMQTT, () => {
+        console.log(`[MQTT] Pago enviado a la máquina ${machine_id} -> ${comandoMQTT}`);
     });
 };
 
@@ -29,5 +37,6 @@ const publicarMensaje = (topic, mensaje) => {
 
 module.exports = {
     enviarComandoPrecio,
+    enviarComandoPago, // <-- Exportamos la nueva función
     publicarMensaje
 };
