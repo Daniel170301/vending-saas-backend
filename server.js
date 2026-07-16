@@ -8,7 +8,25 @@ const app = require('./app');
 
 // Creamos el servidor HTTP
 const server = http.createServer(app);
+// Configuramos Socket.IO y permitimos que Vercel se conecte (CORS)
+const io = new Server(server, {
+  cors: {
+    origin: "*", // En producción, aquí pondrás tu URL de Vercel
+    methods: ["GET", "POST"]
+  }
+});
 
+// Guardamos 'io' en una variable global para usarlo en otros archivos
+global.io = io;
+
+io.on('connection', (socket) => {
+  console.log('⚡ Nuevo panel web conectado:', socket.id);
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Servidor corriendo en el puerto ${PORT}`);
+});
 // ==========================================
 // CONFIGURACIÓN DE WEBSOCKETS (COMUNICACIÓN CON ESP32)
 // ==========================================

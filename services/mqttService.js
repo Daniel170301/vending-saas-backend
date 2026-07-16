@@ -36,6 +36,14 @@ mqttClient.on('message', async (topic, message) => {
 
             if (result.rowCount > 0) {
                 console.log(`✅ ¡Venta física confirmada! Máquina ${machine_id}, Motor ${codigoMotor}. Nuevo stock: ${result.rows[0].stock}`);
+                // Si hay alguien conectado en la web, le avisamos que actualice su pantalla
+                if (global.io) {
+                global.io.emit('actualizacionStock', {
+                    maquina: machine_id, // Usamos la variable en lugar del texto fijo
+                    mensaje: "Stock descontado"
+                    
+                });
+                }
             } else {
                 console.log(`⚠️ Aviso: El motor ${codigoMotor} reportó venta pero ya figuraba sin stock en BD.`);
             }
