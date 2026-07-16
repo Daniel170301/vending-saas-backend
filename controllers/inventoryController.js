@@ -53,8 +53,45 @@ const actualizarInventario = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error guardando inventario' });
     }
 };
+//para 
+const registrarVenta = async (req, res) => {
+    try {
+        const { machine_id, codigo_motor } = req.body;
 
+        // Le pedimos a PostgreSQL que reste 1 al stock actual, SOLO si hay stock mayor a 0
+        const query = `
+            UPDATE inventario 
+            SET stock = stock - 1 
+            WHERE machine_id = $1 AND codigo_motor = $2 AND stock > 0
+            RETURNING *;
+        `;
+        
+        const result = await pool.query(query, [machine_id, codigo_motor]);
+
+        // Si rowCount es 0, significa que el resorte estaba vacío o el código no existe
+        if (result.rowCount === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'No hay stock disponible o el motor no existe' 
+            });
+        }
+
+        // Aquí más adelante podremos agregar el aviso por MQTT al ESP32 para que gire el motor
+        // mqttService.enviarComandoGiro(machine_id, codigo_motor);
+
+        res.json({ 
+            success: true, 
+            message: 'Venta exitosa, stock reducido en 1',
+            nuevo_stock: result.rows[0].stock
+        });
+
+    } catch (error) {
+        console.error("Error al registrar la venta:", error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+};
 module.exports = {
     obtenerInventario,
-    actualizarInventario 
+    actualizarInventario,
+    registrarVenta 
 };

@@ -1,9 +1,8 @@
-// routes/yapeRoutes.js
 const express = require('express');
 const router = express.Router();
-const yapeController = require('../controllers/yapeController');
+const { recibirPagoYape } = require('../controllers/paymentController');
 
-// Ruta: POST /api/webhook/yape
-router.post('/', yapeController.recibirPagoYape);
+// Aplicamos express.text() EXCLUSIVAMENTE a esta ruta para no afectar el express.json() global
+router.post('/:machine_id', express.text({ type: '*/*' }), recibirPagoYape);
 
 module.exports = router;
