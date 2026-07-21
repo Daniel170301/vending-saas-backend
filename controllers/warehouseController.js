@@ -1,5 +1,5 @@
 // controllers/warehouseController.js
-const pool = require('../config/db'); // ⚠️ Asegúrate de que esta ruta apunte a tu archivo de conexión PostgreSQL
+const pool = require('../config/database'); // ⚠️ Asegúrate de que esta ruta apunte a tu archivo de conexión PostgreSQL
 
 const obtenerAlmacen = async (req, res) => {
     try {
