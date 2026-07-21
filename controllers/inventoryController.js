@@ -4,12 +4,23 @@ const mqttService = require('../services/mqttService');
 
 // 1. DEFINE LA FUNCIÓN AQUÍ
 const obtenerInventario = async (req, res) => {
-    const { machine_id } = req.params;
+    // ATRAPAMOS LA MAC SIN IMPORTAR CÓMO SE LLAME EN LA RUTA
+    const machine_id = req.params.machine_id || req.params.mac || req.params.id; 
+    
+    console.log("MAC solicitada por React:", machine_id); // Esto nos dirá la verdad en la consola de Node
+
+    if (!machine_id) {
+        return res.status(400).json({ success: false, message: 'No se envió la MAC de la máquina' });
+    }
+
     try {
-        // Al usar SELECT *, automáticamente enviará la nueva columna 'capacidad' a React
         const result = await pool.query('SELECT * FROM inventario WHERE machine_id = $1', [machine_id]);
+        
+        console.log(`Se encontraron ${result.rowCount} productos para esta máquina`);
+
         res.json({ success: true, inventario: result.rows });
     } catch (error) {
+        console.error("Error obteniendo inventario:", error);
         res.status(500).json({ success: false, message: 'Error al obtener inventario' });
     }
 };
