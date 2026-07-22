@@ -53,32 +53,17 @@ const confirmarDespacho = async (req, res) => {
 // =========================================================================
 // NUEVA FUNCIÓN: Obtener el historial para el panel del Frontend
 // =========================================================================
-const obtenerHistorialVentas = async (req, res) => {
-  try {
-    const query = `
-      SELECT id, machine_id, codigo_motor, nombre_producto, precio, fecha, nombre_cliente 
-      FROM historial_ventas 
-      ORDER BY fecha DESC 
-      LIMIT 100
-    `;
-    const { rows } = await pool.query(query);
-    
-    res.json({ success: true, ventas: rows });
-  } catch (error) {
-    console.error("Error al obtener historial de ventas:", error);
-    res.status(500).json({ success: false, message: "Error del servidor" });
-  }
-};
-const obtenerVentas = async (req, res) => {
+// En tu archivo controllers/salesController.js
+const obtenerHistorial = async (req, res) => {
     try {
-        // 1. Atrapamos el ID del usuario que viene de React
+        // 1. Atrapamos el user_id que React nos está enviando tan amablemente
         const { user_id } = req.query; 
 
         let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
         let values = [];
 
+        // 2. Si hay user_id (en tu caso, el 3), filtramos cruzando con la tabla maquinas
         if (user_id) {
-            // 2. Hacemos el JOIN entre historial_ventas y maquinas usando id_dueno
             query = `
                 SELECT v.* 
                 FROM historial_ventas v
@@ -93,10 +78,10 @@ const obtenerVentas = async (req, res) => {
         
         res.json({
             success: true,
-            data: result.rows // Ajusta 'data' o 'ventas' según lo que espere tu frontend
+            ventas: result.rows 
         });
     } catch (error) {
-        console.error('Error al obtener ventas_:', error);
+        console.error('Error al obtener el historial de ventas:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 };
