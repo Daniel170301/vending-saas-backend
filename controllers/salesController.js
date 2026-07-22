@@ -69,6 +69,37 @@ const obtenerHistorialVentas = async (req, res) => {
     res.status(500).json({ success: false, message: "Error del servidor" });
   }
 };
+const obtenerVentas = async (req, res) => {
+    try {
+        // 1. Atrapamos el ID del usuario que viene de React
+        const { user_id } = req.query; 
+
+        let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
+        let values = [];
+
+        if (user_id) {
+            // 2. Hacemos el JOIN entre historial_ventas y maquinas usando id_dueno
+            query = `
+                SELECT v.* 
+                FROM historial_ventas v
+                JOIN maquinas m ON v.machine_id = m.machine_id
+                WHERE m.id_dueno = $1 
+                ORDER BY v.fecha DESC
+            `;
+            values.push(user_id);
+        }
+
+        const result = await pool.query(query, values);
+        
+        res.json({
+            success: true,
+            data: result.rows // Ajusta 'data' o 'ventas' según lo que espere tu frontend
+        });
+    } catch (error) {
+        console.error('Error al obtener ventas:', error);
+        res.status(500).json({ success: false, message: 'Error en el servidor' });
+    }
+};
 module.exports = {
     confirmarDespacho,
   obtenerHistorialVentas
