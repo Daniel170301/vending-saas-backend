@@ -3,7 +3,22 @@ const pool = require('../config/database'); // ⚠️ Asegúrate de que esta rut
 
 const obtenerAlmacen = async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM productos_almacen ORDER BY id DESC');
+        // Atrapamos el user_id que viene de React
+        const { user_id } = req.query; 
+
+        let query = 'SELECT * FROM productos_almacen';
+        let values = [];
+
+        // Si mandaron un usuario, filtramos. Si no, devolvemos un arreglo vacío o todo (por seguridad, filtramos)
+        if (user_id) {
+            query += ' WHERE id_dueno = $1 ORDER BY id DESC';
+            values.push(user_id);
+        } else {
+            query += ' ORDER BY id DESC'; 
+        }
+
+        const result = await pool.query(query, values);
+        
         res.json({
             success: true,
             productos: result.rows
