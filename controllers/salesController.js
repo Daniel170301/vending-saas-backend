@@ -96,7 +96,7 @@ const obtenerVentas = async (req, res) => {
             data: result.rows // Ajusta 'data' o 'ventas' según lo que espere tu frontend
         });
     } catch (error) {
-        console.error('Error al obtener ventas:', error);
+        console.error('Error al obtener ventas_:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 };
