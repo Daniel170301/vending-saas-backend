@@ -54,7 +54,7 @@ const confirmarDespacho = async (req, res) => {
 // NUEVA FUNCIÓN: Obtener el historial para el panel del Frontend
 // =========================================================================
 // En tu archivo controllers/salesController.js
-const obtenerHistorial = async (req, res) => {
+const obtenerHistorialVentas = async (req, res) => {
     try {
         // 1. Atrapamos el user_id que React nos está enviando tan amablemente
         const { user_id } = req.query; 
