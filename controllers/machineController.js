@@ -50,42 +50,34 @@ const getMachines = async (req, res) => {
 };
 const updateMachine = async (req, res) => {
     try {
-        const { id } = req.params; // Esta es la MAC (machine_id) que viene en la URL
-        const data = req.body;     // Estos son los datos que enviaste desde React
-
-        const query = `
+        const { id } = req.params; // El ID que manda React en la URL (en tu caso raro, mandará 's')
+        const { name, code, location, brand, model, bill_plate, layout } = req.body;
+        
+        // Buscamos la máquina por machine_id O por code, y actualizamos los datos
+        const updateQuery = `
             UPDATE maquinas 
-            SET 
-                name = $1,
-                code = $2,
-                location = $3,
-                coin_base = $4,
-                brand = $5,
-                model = $6,
-                plate = $7,
-                coin_brand = $8,
-                coin_plate = $9,
-                bill_enabled = $10,
-                bill_brand = $11,
-                bill_model = $12,
-                bill_plate = $13,
-                layout = $14
-            WHERE machine_id = $15
+            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7
+            WHERE machine_id = $8 OR code = $8
+            RETURNING *;
         `;
         
-        const values = [
-            data.name, data.code, data.location, data.coin_base,
-            data.brand, data.model, data.plate, data.coin_brand, data.coin_plate,
-            data.bill_enabled, data.bill_brand, data.bill_model, data.bill_plate,
-            data.layout, id
-        ];
-
-        await pool.query(query, values);
+        const values = [name, code, location, brand, model, bill_plate, layout, id];
         
-        res.json({ success: true, message: "Máquina actualizada correctamente" });
+        const result = await pool.query(updateQuery, values);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Máquina no encontrada en la base de datos.' });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Máquina actualizada correctamente', 
+            data: result.rows[0] 
+        });
+
     } catch (error) {
-        console.error("Error al actualizar la máquina:", error);
-        res.status(500).json({ success: false, message: "Error interno del servidor" });
+        console.error('Error al actualizar máquina en PostgreSQL:', error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
 };
 const createMachine = async (req, res) => {
