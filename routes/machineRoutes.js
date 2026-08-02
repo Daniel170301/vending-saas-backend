@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 // 1. Importamos la nueva función updateMachine junto con getMachines
-const { getMachines, updateMachine } = require('../controllers/machineController');
+const { getMachines, updateMachine, createMachine } = require('../controllers/machineController');
 
 // GET /api/machines (Para leer la lista)
 router.get('/', getMachines);
