@@ -49,35 +49,73 @@ const getMachines = async (req, res) => {
     }
 };
 const updateMachine = async (req, res) => {
+    // Obtenemos un cliente exclusivo de la base de datos para hacer una Transacción
+    const client = await pool.connect();
+    
     try {
-        const { id } = req.params; // El ID que manda React en la URL (en tu caso raro, mandará 's')
+        const { id } = req.params; // El ID que manda React (ej: 's')
         const { name, code, location, brand, model, bill_plate, layout } = req.body;
         
-        // Buscamos la máquina por machine_id O por code, y actualizamos los datos
+        await client.query('BEGIN'); // 1. Iniciamos la transacción (Si algo falla, no se guarda nada)
+
+        // === AUTO-REPARACIÓN DE LA BASE DE DATOS ===
+        // Si el ID de la URL ('s') es distinto a la MAC real que envías en el code:
+        if (code && id !== code) {
+            
+            // A. Cambiamos el código de la máquina vieja temporalmente para que no choque el UNIQUE
+            await client.query('UPDATE maquinas SET code = $1 WHERE machine_id = $2', [`temp_${id}`, id]);
+            
+            // B. Clonamos la máquina, pero esta vez con el machine_id correcto (la MAC real)
+            await client.query(`
+                INSERT INTO maquinas (
+                    machine_id, code, id_dueno, name, location, brand, model, plate, 
+                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled, 
+                    bill_brand, bill_model, bill_plate, layout, ubicacion, 
+                    pasarela_tipo, numero_celular, dispense_pending, fecha_instalacion, ultimo_cliente
+                )
+                SELECT 
+                    $1, $1, id_dueno, name, location, brand, model, plate, 
+                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled, 
+                    bill_brand, bill_model, bill_plate, layout, ubicacion, 
+                    pasarela_tipo, numero_celular, dispense_pending, fecha_instalacion, ultimo_cliente
+                FROM maquinas WHERE machine_id = $2
+            `, [code, id]);
+            
+            // C. Movemos los productos y las ventas hacia el nuevo machine_id correcto
+            await client.query('UPDATE inventario SET machine_id = $1 WHERE machine_id = $2', [code, id]);
+            await client.query('UPDATE historial_ventas SET machine_id = $1 WHERE machine_id = $2', [code, id]);
+            
+            // D. Destruimos la máquina defectuosa (la letra 's') que ya quedó vacía
+            await client.query('DELETE FROM maquinas WHERE machine_id = $1', [id]);
+        }
+
+        // === ACTUALIZACIÓN DE DATOS (Lo que el usuario editó en la pantalla) ===
+        const targetId = code || id;
+        
         const updateQuery = `
             UPDATE maquinas 
             SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7
-            WHERE machine_id = $8 OR code = $8
+            WHERE machine_id = $8
             RETURNING *;
         `;
         
-        const values = [name, code, location, brand, model, bill_plate, layout, id];
+        const values = [name, code, location, brand, model, bill_plate, layout, targetId];
+        const result = await client.query(updateQuery, values);
+
+        await client.query('COMMIT'); // 2. Guardamos todos los cambios de golpe
         
-        const result = await pool.query(updateQuery, values);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Máquina no encontrada en la base de datos.' });
-        }
-
         res.json({ 
             success: true, 
-            message: 'Máquina actualizada correctamente', 
+            message: 'Máquina guardada y reparada automáticamente.', 
             data: result.rows[0] 
         });
 
     } catch (error) {
-        console.error('Error al actualizar máquina en PostgreSQL:', error);
-        res.status(500).json({ success: false, message: 'Error interno del servidor' });
+        await client.query('ROLLBACK'); // Si ocurre un error, cancelamos todo para no romper la BD
+        console.error('Error en la auto-reparación de la máquina:', error);
+        res.status(500).json({ success: false, message: 'Error interno al actualizar.' });
+    } finally {
+        client.release(); // 3. Devolvemos el cliente al servidor
     }
 };
 const createMachine = async (req, res) => {
