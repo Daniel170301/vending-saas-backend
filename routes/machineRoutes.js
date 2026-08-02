@@ -5,9 +5,10 @@ const router = express.Router();
 // 1. Importamos la nueva función updateMachine junto con getMachines
 const { getMachines, updateMachine } = require('../controllers/machineController');
 
-// Esta ruta será accesible en: GET /api/machines (Para leer la lista)
+// GET /api/machines (Para leer la lista)
 router.get('/', getMachines);
-
+// POST /api/machines (Para CREAR una nueva máquina) <-- ¡ESTA ES LA QUE FALTABA!
+router.post('/', createMachine);
 // 2. Agregamos la ruta PUT (Para actualizar una máquina específica)
 // Esta ruta será accesible en: PUT /api/machines/:id
 router.put('/:id', updateMachine);

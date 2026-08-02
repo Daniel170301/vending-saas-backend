@@ -88,9 +88,21 @@ const updateMachine = async (req, res) => {
         res.status(500).json({ success: false, message: "Error interno del servidor" });
     }
 };
-
+const createMachine = async (req, res) => {
+    try {
+        const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
+        
+        // Aquí va tu lógica de inserción en base de datos (INSERT INTO maquinas...)
+        
+        res.status(201).json({ success: true, message: 'Máquina creada exitosamente' });
+    } catch (error) {
+        console.error('Error al crear máquina:', error);
+        res.status(500).json({ success: false, message: 'Error en el servidor' });
+    }
+};
 // Recuerda exportarla al final del archivo:
 module.exports = {
     getMachines,
-    updateMachine // <-- Agrega esto
+    updateMachine, // <-- Agrega esto
+    createMachine
 };
