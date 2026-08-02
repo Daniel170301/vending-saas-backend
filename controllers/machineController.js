@@ -92,12 +92,61 @@ const createMachine = async (req, res) => {
     try {
         const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
         
-        // Aquí va tu lógica de inserción en base de datos (INSERT INTO maquinas...)
+        // 1. Buscamos el ID del usuario dueño usando el email que nos manda React
+        const userResult = await pool.query(
+            'SELECT id FROM usuarios_duenos WHERE email = $1',
+            [user_email]
+        );
+
+        // Si no encuentra el email, rechazamos la petición
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Usuario dueño no encontrado.' });
+        }
+
+        const id_dueno = userResult.rows[0].id;
         
-        res.status(201).json({ success: true, message: 'Máquina creada exitosamente' });
+        // Según tu SQL, 'machine_id' y 'code' suelen ser la MAC. Usaremos el code para ambos.
+        const machine_id = code; 
+
+        // 2. Insertamos la máquina en tu tabla de PostgreSQL
+        const insertQuery = `
+            INSERT INTO maquinas (
+                machine_id, code, name, id_dueno, location, brand, model, bill_plate, layout
+            ) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *;
+        `;
+        
+        const values = [
+            machine_id, 
+            code, 
+            name, 
+            id_dueno, 
+            location, 
+            brand, 
+            model, 
+            bill_plate, 
+            layout // Express y pg manejan los JSON automáticamente
+        ];
+
+        const result = await pool.query(insertQuery, values);
+
+        // 3. Le respondemos a React que todo salió perfecto
+        res.status(201).json({ 
+            success: true, 
+            message: 'Máquina creada exitosamente', 
+            data: result.rows[0] 
+        });
+
     } catch (error) {
-        console.error('Error al crear máquina:', error);
-        res.status(500).json({ success: false, message: 'Error en el servidor' });
+        console.error('Error al crear máquina en PostgreSQL:', error);
+        
+        // Manejo de error si el cliente intenta registrar una MAC que ya existe
+        if (error.code === '23505') { 
+            return res.status(400).json({ success: false, message: 'El código o MAC de esta máquina ya está registrado.' });
+        }
+
+        res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
 };
 // Recuerda exportarla al final del archivo:
