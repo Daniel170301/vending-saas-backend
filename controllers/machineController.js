@@ -13,7 +13,7 @@ const getMachines = async (req, res) => {
 
         // Consulta SQL: Unimos las tablas para traer solo las máquinas de este dueño
 // Consulta SQL: Unimos las tablas para traer solo las máquinas de este dueño
-        const query = `
+     const query = `
             SELECT 
                 m.machine_id AS id,
                 COALESCE(m.name, m.machine_id) AS name, 
@@ -21,6 +21,11 @@ const getMachines = async (req, res) => {
                 COALESCE(m.location, m.ubicacion) AS location,
                 m.numero_celular AS phone,
                 'online' AS status,
+                
+                -- === TUS NUEVOS CANDADOS SAAS ===
+                m.pago_al_dia,
+                m.macrodroid_activo,
+                
                 -- Agregamos TODAS las columnas nuevas que necesita React
                 m.brand,
                 m.model,

@@ -28,13 +28,5 @@ app.get('/', (req, res) => {
   res.send('Servidor SaaS de Máquinas Expendedoras 100% Operativo (Arquitectura Modular)'); //[cite: 4]
 });
 
-// ==========================================
-// AQUÍ IMPORTAREMOS LAS RUTAS EN EL FUTURO
-// ==========================================
-// const authRoutes = require('./routes/authRoutes');
-// const machineRoutes = require('./routes/machineRoutes');
-// 
-// app.use('/api/auth', authRoutes);
-// app.use('/api/maquinas', machineRoutes);
 
 module.exports = app;
