@@ -33,20 +33,22 @@ const crearProductoAlmacen = async (req, res) => {
     try {
         const { 
             name, category, subcategory, unit_cost, 
-            sale_price, stock_warehouse, capacidad, unit_type, id_dueno 
+            sale_price, stock_warehouse, capacidad, unit_type, id_dueno,
+            barcode, image_url, min_stock // <-- AÑADIDOS AQUÍ
         } = req.body;
 
         const query = `
             INSERT INTO productos_almacen 
-            (name, category, subcategory, unit_cost, sale_price, stock_warehouse, capacidad, unit_type, id_dueno) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+            (name, category, subcategory, unit_cost, sale_price, stock_warehouse, capacidad, unit_type, id_dueno, barcode, image_url, min_stock) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
             RETURNING *;
         `;
         
         const values = [
             name, category || null, subcategory || null, 
             unit_cost || 0, sale_price || 0, stock_warehouse || 0, 
-            capacidad || 10, unit_type || 'unidad', id_dueno || null
+            capacidad || 10, unit_type || 'unidad', id_dueno || null,
+            barcode || null, image_url || null, min_stock || 0 // <-- AÑADIDOS AQUÍ
         ];
 
         const result = await pool.query(query, values);
@@ -61,27 +63,32 @@ const crearProductoAlmacen = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error al guardar en la base de datos' });
     }
 };
+
 // NUEVO: Función para editar todos los detalles de un producto
 const editarProductoAlmacen = async (req, res) => {
     try {
         const { id } = req.params;
         const { 
             name, category, subcategory, unit_cost, 
-            sale_price, stock_warehouse, capacidad, unit_type 
+            sale_price, stock_warehouse, capacidad, unit_type,
+            barcode, image_url, min_stock // <-- AÑADIDOS AQUÍ
         } = req.body;
 
         const query = `
             UPDATE productos_almacen 
             SET name = $1, category = $2, subcategory = $3, unit_cost = $4, 
-                sale_price = $5, stock_warehouse = $6, capacidad = $7, unit_type = $8
-            WHERE id = $9
+                sale_price = $5, stock_warehouse = $6, capacidad = $7, unit_type = $8,
+                barcode = $9, image_url = $10, min_stock = $11
+            WHERE id = $12
             RETURNING *;
         `;
         
         const values = [
             name, category || null, subcategory || null, 
             unit_cost || 0, sale_price || 0, stock_warehouse || 0, 
-            capacidad || 10, unit_type || 'unidad', id
+            capacidad || 10, unit_type || 'unidad', 
+            barcode || null, image_url || null, min_stock || 0, // <-- AÑADIDOS AQUÍ
+            id
         ];
 
         const result = await pool.query(query, values);
@@ -132,9 +139,10 @@ const actualizarStock = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error al actualizar el stock' });
     }
 };
+
 module.exports = {
     obtenerAlmacen,
     crearProductoAlmacen,
-    editarProductoAlmacen, // ¡No olvides exportarla!
-    actualizarStock        // ¡No olvides exportarla!
+    editarProductoAlmacen, 
+    actualizarStock        
 };
