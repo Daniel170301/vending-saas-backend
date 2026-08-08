@@ -7,7 +7,7 @@ const obtenerInventario = async (req, res) => {
     // ATRAPAMOS LA MAC SIN IMPORTAR CÓMO SE LLAME EN LA RUTA
     const machine_id = req.params.machine_id || req.params.mac || req.params.id; 
     
-    console.log("MAC solicitada por React:", machine_id); // Esto nos dirá la verdad en la consola de Node
+    console.log("MAC solicitada por React:", machine_id);
 
     if (!machine_id) {
         return res.status(400).json({ success: false, message: 'No se envió la MAC de la máquina' });
@@ -18,7 +18,13 @@ const obtenerInventario = async (req, res) => {
         
         console.log(`Se encontraron ${result.rowCount} productos para esta máquina`);
 
-        res.json({ success: true, inventario: result.rows });
+        // MANDAMOS LA INFORMACIÓN EN TODOS LOS FORMATOS POSIBLES PARA QUE LOVABLE LA LEA SÍ O SÍ
+        res.json({ 
+            success: true, 
+            inventario: result.rows,
+            planogram: result.rows,
+            data: result.rows 
+        });
     } catch (error) {
         console.error("Error obteniendo inventario:", error);
         res.status(500).json({ success: false, message: 'Error al obtener inventario' });
