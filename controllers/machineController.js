@@ -127,18 +127,10 @@ const createMachine = async (req, res) => {
     try {
         const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
         
-        // 1. Buscamos el ID del usuario dueño usando el email que nos manda React
-        const userResult = await pool.query(
-            'SELECT id FROM usuarios_duenos WHERE email = $1',
-            [user_email]
-        );
-
-        // Si no encuentra el email, rechazamos la petición
-        if (userResult.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Usuario dueño no encontrado.' });
-        }
-
-        const id_dueno = userResult.rows[0].id;
+        // 1. ELIMINAMOS LA BÚSQUEDA LOCAL 
+        // Como Supabase ya validó que el usuario existe para dejarlo entrar a Lovable,
+        // simplemente asignamos el correo (o ID de Supabase) directamente como dueño.
+        const id_dueno = user_email; 
         
         // Según tu SQL, 'machine_id' y 'code' suelen ser la MAC. Usaremos el code para ambos.
         const machine_id = code; 
@@ -156,12 +148,12 @@ const createMachine = async (req, res) => {
             machine_id, 
             code, 
             name, 
-            id_dueno, 
+            id_dueno, // <-- Aquí insertamos el correo de Supabase directamente
             location, 
             brand, 
             model, 
             bill_plate, 
-            layout // Express y pg manejan los JSON automáticamente
+            layout 
         ];
 
         const result = await pool.query(insertQuery, values);
