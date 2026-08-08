@@ -40,21 +40,21 @@ mqttClient.on('message', async (topic, message) => {
                 if (updateRes.rowCount > 0) {
                     console.log(`✅ Stock descontado. Nuevo stock: ${updateRes.rows[0].stock}`);
 
-// 1. Buscamos el último pago de Yape en general (sin filtrar por máquina)
+// Buscamos el nombre del último cliente registrado en esta máquina
                     let nombreCliente = "Desconocido";
                     try {
-                        const yapeRes = await pool.query(
-                            'SELECT nombre_cliente FROM pagos_yape ORDER BY id DESC LIMIT 1'
+                        const maqRes = await pool.query(
+                            'SELECT ultimo_cliente FROM maquinas WHERE machine_id = $1',
+                            [machine_id]
                         );
-                        
-                        if (yapeRes.rowCount > 0 && yapeRes.rows[0].nombre_cliente) {
-                            nombreCliente = yapeRes.rows[0].nombre_cliente;
+                        if (maqRes.rowCount > 0 && maqRes.rows[0].ultimo_cliente) {
+                            nombreCliente = maqRes.rows[0].ultimo_cliente;
                         }
                     } catch (err) {
-                        console.log("⚠️ Error al obtener el cliente de Yape:", err.message);
+                        console.log("⚠️ Error al obtener el último cliente:", err.message);
                     }
 
-                    // 2. Insertamos en el historial con el resultado obtenido
+                    // Insertamos en el historial con ese nombre
                     await pool.query(
                         'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, nombre_cliente) VALUES ($1, $2, $3, $4, $5)',
                         [machine_id, codigoMotor, producto.nombre_producto, producto.precio, nombreCliente]
