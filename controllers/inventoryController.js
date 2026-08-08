@@ -3,6 +3,7 @@ const pool = require('../config/database');
 const mqttService = require('../services/mqttService');
 
 // 1. OBTENER INVENTARIO
+// 1. OBTENER INVENTARIO
 const obtenerInventario = async (req, res) => {
     // ATRAPAMOS LA MAC SIN IMPORTAR CÓMO SE LLAME EN LA RUTA
     const machine_id = req.params.machine_id || req.params.mac || req.params.id; 
@@ -14,11 +15,29 @@ const obtenerInventario = async (req, res) => {
     }
 
     try {
-        const result = await pool.query('SELECT * FROM inventario WHERE machine_id = $1', [machine_id]);
+        // Consulta con aliases dobles para que Lovable los lea sin errores
+        const query = `
+            SELECT 
+                id,
+                machine_id,
+                codigo_motor,
+                codigo_motor AS slot,
+                nombre_producto,
+                nombre_producto AS product_name,
+                nombre_producto AS name,
+                precio,
+                precio AS price,
+                stock,
+                capacidad,
+                capacidad AS capacity
+            FROM inventario 
+            WHERE machine_id = $1;
+        `;
+
+        const result = await pool.query(query, [machine_id]);
         
         console.log(`Se encontraron ${result.rowCount} productos para esta máquina`);
 
-        // MANDAMOS LA INFORMACIÓN EN TODOS LOS FORMATOS POSIBLES PARA QUE LOVABLE LA LEA SÍ O SÍ
         res.json({ 
             success: true, 
             inventario: result.rows,
