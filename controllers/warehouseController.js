@@ -5,11 +5,13 @@ const mqttService = require('../services/mqttService');
 
 // controllers/warehouseController.js
 
+// controllers/warehouseController.js
+
 const obtenerAlmacen = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
         
-        console.log(`🔍 Solicitando inventario de almacén con filtro user_id:`, user_id);
+        console.log(`🔍 Solicitando inventario de almacén para:`, user_id);
 
         let query = `
             SELECT p.* 
@@ -19,8 +21,13 @@ const obtenerAlmacen = async (req, res) => {
         let values = [];
 
         if (user_id) {
-            // Filtra por ID numérico, por correo, o permite ver los que tengan id_dueno nulo (para evitar que se oculten)
-            query += ` WHERE p.id_dueno::text = $1 OR u.email = $1 OR p.id_dueno IS NULL`;
+            // Si es un correo electrónico, filtramos por u.email
+            if (user_id.includes('@')) {
+                query += ` WHERE u.email = $1 OR p.id_dueno IS NULL`;
+            } else {
+                // Si es un número/ID, hacemos un casting seguro a integer
+                query += ` WHERE p.id_dueno = $1::integer OR p.id_dueno IS NULL`;
+            }
             values.push(user_id);
         }
 
