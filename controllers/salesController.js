@@ -50,29 +50,34 @@ const confirmarDespacho = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error interno en la confirmación' });
     }
 };
+
 // =========================================================================
 // NUEVA FUNCIÓN: Obtener el historial para el panel del Frontend
 // =========================================================================
 const obtenerHistorialVentas = async (req, res) => {
     try {
-        // 1. Atrapamos cualquiera de las dos formas en que Lovable nos pida los datos
         const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.query.machine_id;
         const user_id = req.query.user_id || req.query.user || req.query.email; 
 
         let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
         let values = [];
 
-        // 2. Lógica dinámica según lo que pida Lovable
         if (machine_id) {
-            // Si nos mandan una MAC, filtramos solo esa máquina
-            query = 'SELECT * FROM historial_ventas WHERE machine_id = $1 ORDER BY fecha DESC';
+            // Agregamos un LEFT JOIN para traer el nombre de la máquina específica
+            query = `
+                SELECT v.*, m.nombre AS nombre_maquina 
+                FROM historial_ventas v
+                LEFT JOIN maquinas m ON v.machine_id = m.machine_id
+                WHERE v.machine_id = $1 
+                ORDER BY v.fecha DESC
+            `;
             values.push(machine_id);
             console.log(`Buscando ventas para la máquina MAC: ${machine_id}`);
             
         } else if (user_id) {
-            // EL TRUCO MAESTRO: Doble JOIN para traducir el correo a ID numérico
+            // EL TRUCO MAESTRO: Además de traducir el correo, pedimos m.nombre
             query = `
-                SELECT v.* 
+                SELECT v.*, m.nombre AS nombre_maquina
                 FROM historial_ventas v
                 JOIN maquinas m ON v.machine_id = m.machine_id
                 JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
@@ -85,7 +90,6 @@ const obtenerHistorialVentas = async (req, res) => {
 
         const result = await pool.query(query, values);
         
-        // 3. Devolvemos el arreglo DIRECTO que espera Lovable
         res.json(result.rows);
 
     } catch (error) {
