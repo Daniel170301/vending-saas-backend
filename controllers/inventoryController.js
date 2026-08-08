@@ -2,7 +2,7 @@
 const pool = require('../config/database');
 const mqttService = require('../services/mqttService');
 
-// 1. DEFINE LA FUNCIÓN AQUÍ
+// 1. OBTENER INVENTARIO
 const obtenerInventario = async (req, res) => {
     // ATRAPAMOS LA MAC SIN IMPORTAR CÓMO SE LLAME EN LA RUTA
     const machine_id = req.params.machine_id || req.params.mac || req.params.id; 
@@ -25,6 +25,7 @@ const obtenerInventario = async (req, res) => {
     }
 };
 
+// 2. ACTUALIZAR INVENTARIO (O CREAR RESORTE NUEVO)
 const actualizarInventario = async (req, res) => {
     try {
         // MODIFICACIÓN 1: Extraemos 'capacidad' del cuerpo de la petición
@@ -64,7 +65,8 @@ const actualizarInventario = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error guardando inventario' });
     }
 };
-//para 
+
+// 3. REGISTRAR VENTA
 const registrarVenta = async (req, res) => {
     try {
         const { machine_id, codigo_motor } = req.body;
@@ -101,8 +103,40 @@ const registrarVenta = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
 };
+
+// 4. NUEVO: ELIMINAR UN RESORTE ESPECÍFICO DEL INVENTARIO
+const deleteSpring = async (req, res) => {
+    try {
+        const { machine_id, codigo_motor } = req.params;
+
+        console.log(`Eliminando resorte M${codigo_motor} de la máquina: ${machine_id}`);
+
+        const deleteQuery = `
+            DELETE FROM inventario 
+            WHERE machine_id = $1 AND codigo_motor = $2
+            RETURNING *;
+        `;
+
+        const result = await pool.query(deleteQuery, [machine_id, codigo_motor]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'El resorte no existía en la base de datos.' });
+        }
+
+        res.json({
+            success: true,
+            message: `Resorte M${codigo_motor} eliminado correctamente.`
+        });
+
+    } catch (error) {
+        console.error('Error al eliminar resorte:', error);
+        res.status(500).json({ success: false, message: 'Error al eliminar el resorte en el servidor.' });
+    }
+};
+
 module.exports = {
     obtenerInventario,
     actualizarInventario,
-    registrarVenta 
+    registrarVenta,
+    deleteSpring // <-- Ahora sí la exportamos correctamente
 };
