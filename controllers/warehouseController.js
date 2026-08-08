@@ -1,30 +1,31 @@
 // controllers/warehouseController.js
 const pool = require('../config/database'); // ⚠️ Asegúrate de que esta ruta apunte a tu archivo de conexión PostgreSQL
 const mqttService = require('../services/mqttService');
+// controllers/warehouseController.js
+
 const obtenerAlmacen = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
-        let query = 'SELECT * FROM productos_almacen';
+        
+        let query = `
+            SELECT p.* 
+            FROM productos_almacen p
+            JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
+        `;
         let values = [];
 
         if (user_id) {
-            query = `
-                SELECT p.* 
-                FROM productos_almacen p
-                JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
-                WHERE u.email = $1
-                ORDER BY p.id DESC
-            `;
+            // MAGIA: Busca si el parámetro es el correo O es el número de ID
+            query += ` WHERE u.email = $1 OR u.id::text = $1`;
             values.push(user_id);
-            console.log(`Buscando productos de almacén para el usuario: ${user_id}`);
-        } else {
-            query += ' ORDER BY id DESC';
-            console.log("Obteniendo todos los productos (sin filtrar usuario)");
+            console.log(`Buscando productos de almacén para el usuario/ID: ${user_id}`);
         }
+
+        query += ' ORDER BY p.id DESC';
 
         const result = await pool.query(query, values);
         
-        // CORRECCIÓN AQUÍ: Devolvemos el formato exacto que Lovable espera
+        // Devolvemos la estructura exacta que Lovable espera
         res.json({
             success: true,
             productos: result.rows
