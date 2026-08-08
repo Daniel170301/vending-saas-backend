@@ -40,21 +40,28 @@ mqttClient.on('message', async (topic, message) => {
                 if (updateRes.rowCount > 0) {
                     console.log(`✅ Stock descontado. Nuevo stock: ${updateRes.rows[0].stock}`);
 
-                    // 1. Buscamos al último cliente de Yape usando el nombre real de tu columna
+// 1. Buscamos al último cliente de Yape con depuración
                     let nombreCliente = "Desconocido";
                     try {
+                        console.log("🔍 Buscando pago en pagos_yape para la máquina:", machine_id);
+                        
                         const yapeRes = await pool.query(
                             'SELECT nombre_cliente FROM pagos_yape WHERE machine_id = $1 ORDER BY id DESC LIMIT 1',
                             [machine_id]
                         );
+                        
+                        console.log("📦 Filas encontradas en pagos_yape:", yapeRes.rows);
+
                         if (yapeRes.rowCount > 0 && yapeRes.rows[0].nombre_cliente) {
                             nombreCliente = yapeRes.rows[0].nombre_cliente;
+                        } else {
+                            console.log("⚠️ La consulta no arrojó ningún cliente para este machine_id.");
                         }
                     } catch (err) {
-                        console.log("⚠️ No se pudo obtener el nombre del cliente de Yape:", err.message);
+                        console.log("❌ Error exacto al consultar pagos_yape:", err.message);
                     }
 
-                    // 2. Insertamos en el historial usando la columna exacta 'nombre_cliente'
+                    // 2. Insertamos en el historial con el resultado obtenido
                     await pool.query(
                         'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, nombre_cliente) VALUES ($1, $2, $3, $4, $5)',
                         [machine_id, codigoMotor, producto.nombre_producto, producto.precio, nombreCliente]
