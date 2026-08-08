@@ -40,26 +40,27 @@ mqttClient.on('message', async (topic, message) => {
                 if (updateRes.rowCount > 0) {
                     console.log(`✅ Stock descontado. Nuevo stock: ${updateRes.rows[0].stock}`);
 
-                    // 2.5 NUEVO: Buscamos al último cliente de Yape para esta máquina
-                    let nombreCliente = "-";
+                    // 1. Buscamos al último cliente de Yape usando el nombre real de tu columna
+                    let nombreCliente = "Desconocido";
                     try {
                         const yapeRes = await pool.query(
-                            'SELECT cliente FROM pagos_yape WHERE machine_id = $1 ORDER BY id DESC LIMIT 1',
+                            'SELECT nombre_cliente FROM pagos_yape WHERE machine_id = $1 ORDER BY id DESC LIMIT 1',
                             [machine_id]
                         );
-                        if (yapeRes.rowCount > 0) {
-                            nombreCliente = yapeRes.rows[0].cliente;
+                        if (yapeRes.rowCount > 0 && yapeRes.rows[0].nombre_cliente) {
+                            nombreCliente = yapeRes.rows[0].nombre_cliente;
                         }
                     } catch (err) {
                         console.log("⚠️ No se pudo obtener el nombre del cliente de Yape:", err.message);
                     }
 
-                    // 3. Insertamos en el historial incluyendo el nombre del cliente
+                    // 2. Insertamos en el historial usando la columna exacta 'nombre_cliente'
                     await pool.query(
-                        'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, cliente_yape) VALUES ($1, $2, $3, $4, $5)',
+                        'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, nombre_cliente) VALUES ($1, $2, $3, $4, $5)',
                         [machine_id, codigoMotor, producto.nombre_producto, producto.precio, nombreCliente]
                     );
-                    console.log("✅ Venta registrada en historial_ventas con cliente:", nombreCliente);
+                    console.log("💾 Venta registrada en historial_ventas con cliente:", nombreCliente);
+
 
                     if (global.io) {
                         global.io.emit('actualizacionStock', { maquina: machine_id, mensaje: "Venta registrada" });
