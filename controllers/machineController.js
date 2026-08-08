@@ -11,9 +11,8 @@ const getMachines = async (req, res) => {
 
         console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
 
-        // Consulta SQL: Unimos las tablas para traer solo las máquinas de este dueño
-// Consulta SQL: Unimos las tablas para traer solo las máquinas de este dueño
-     const query = `
+        // Consulta SQL directa sin necesidad de hacer JOIN, buscando por el email del dueño
+        const query = `
             SELECT 
                 m.machine_id AS id,
                 COALESCE(m.name, m.machine_id) AS name, 
@@ -40,8 +39,7 @@ const getMachines = async (req, res) => {
                 m.bill_plate,
                 m.layout
             FROM maquinas m
-            JOIN usuarios_duenos u ON m.id_dueno = u.id
-            WHERE u.email = $1;
+            WHERE m.id_dueno = $1;
         `;
 
         const resultado = await pool.query(query, [usuarioSolicitante]);
