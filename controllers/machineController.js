@@ -53,11 +53,10 @@ const getMachines = async (req, res) => {
     }
 };
 const updateMachine = async (req, res) => {
-    // Obtenemos un cliente exclusivo de la base de datos para hacer una Transacción
     const client = await pool.connect();
     
     try {
-        const { id } = req.params; // El ID que manda React (ej: 's')
+        const { id } = req.params;
         const { name, code, location, brand, model, bill_plate, layout } = req.body;
         
         await client.query('BEGIN'); // 1. Iniciamos la transacción
@@ -89,6 +88,7 @@ const updateMachine = async (req, res) => {
         const targetId = code || id;
         
         // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
+        // Aquí pasamos el layout tal cual viene para que se guarde en la máquina
         const updateQuery = `
             UPDATE maquinas 
             SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7
@@ -98,15 +98,20 @@ const updateMachine = async (req, res) => {
         const values = [name, code, location, brand, model, bill_plate, layout, targetId];
         const result = await client.query(updateQuery, values);
 
-        // === 3. NUEVO: SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
-        if (layout && Array.isArray(layout)) {
+        // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
+        
+        // A) BLINDAJE: Si React nos mandó el layout como texto, lo convertimos a objeto JSON real
+        let layoutArray = layout;
+        if (typeof layout === 'string') {
+            try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
+        }
+
+        if (layoutArray && Array.isArray(layoutArray)) {
             let motoresEnEditor = [];
 
-            // A) Extraemos todos los resortes que configuraste en el panel de React
-            layout.forEach(bandeja => {
+            layoutArray.forEach(bandeja => {
                 if (bandeja.springs && Array.isArray(bandeja.springs)) {
                     bandeja.springs.forEach(resorte => {
-                        // Lovable suele usar 'id', 'code' o 'motor' para identificar el resorte
                         const codigo = String(resorte.id || resorte.code || resorte.motor || '');
                         const capacidad = resorte.capacity || resorte.capacidad || 10;
                         if (codigo) {
@@ -118,35 +123,32 @@ const updateMachine = async (req, res) => {
 
             if (motoresEnEditor.length > 0) {
                 const codigosEditor = motoresEnEditor.map(m => m.codigo);
-
-                // B) Obtenemos los motores que YA existen en la base de datos (inventario actual)
                 const invRes = await client.query('SELECT codigo_motor FROM inventario WHERE machine_id = $1', [targetId]);
                 const motoresEnDB = invRes.rows.map(row => row.codigo_motor);
 
-                // C) Identificamos cuáles sobraron (borrados en el editor) y cuáles son nuevos
                 const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
                 const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
                 const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
 
-                // D) Eliminamos del inventario los resortes que borraste en el editor (ej: 11, 13, 15)
+                // B) Eliminamos resortes antiguos (con corrección de sintaxis PostgreSQL)
                 if (motoresParaEliminar.length > 0) {
                     await client.query(
-                        'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY($2::text[])',
+                        'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY($2)',
                         [targetId, motoresParaEliminar]
                     );
                 }
 
-                // E) Agregamos los resortes nuevos (ej: 10, 12, 14) vacíos y sin producto
+                // C) Agregamos nuevos
                 if (motoresParaAgregar.length > 0) {
                     for (let resorte of motoresParaAgregar) {
                         await client.query(
                             'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock, capacidad) VALUES ($1, $2, $3, $4, $5, $6)',
-                            [targetId, resorte.codigo, '', 0.00, 0, resorte.capacidad]
+                            [targetId, resorte.codigo, '', 0, 0, resorte.capacidad]
                         );
                     }
                 }
                 
-                // F) Actualizamos la capacidad máxima de los resortes que mantuviste
+                // D) Actualizamos capacidad
                 for (let resorte of motoresParaActualizar) {
                     await client.query(
                         'UPDATE inventario SET capacidad = $1 WHERE machine_id = $2 AND codigo_motor = $3',
@@ -156,7 +158,7 @@ const updateMachine = async (req, res) => {
             }
         }
 
-        await client.query('COMMIT'); // Guardamos absolutamente todo
+        await client.query('COMMIT'); 
         
         res.json({ 
             success: true, 
@@ -165,13 +167,16 @@ const updateMachine = async (req, res) => {
         });
 
     } catch (error) {
-        await client.query('ROLLBACK'); // Si algo falla, revertimos para no romper nada
+        await client.query('ROLLBACK'); 
         console.error('Error en la sincronización de la máquina:', error);
-        res.status(500).json({ success: false, message: 'Error interno al actualizar y sincronizar.' });
+        
+        // ¡EL TRUCO! Le mandamos a tu celular el texto real del error de la base de datos
+        res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     } finally {
         client.release();
     }
 };
+
 
 const createMachine = async (req, res) => {
     try {
