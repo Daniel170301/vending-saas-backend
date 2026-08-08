@@ -11,7 +11,7 @@ const getMachines = async (req, res) => {
 
         console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
 
-        // Consulta SQL directa sin necesidad de hacer JOIN, buscando por el email del dueño
+        // Consulta SQL con el JOIN seguro para relacionar el ID numérico con el email de Supabase
         const query = `
             SELECT 
                 m.machine_id AS id,
@@ -39,7 +39,8 @@ const getMachines = async (req, res) => {
                 m.bill_plate,
                 m.layout
             FROM maquinas m
-            WHERE m.id_dueno = $1;
+            JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
+            WHERE u.email = $1;
         `;
 
         const resultado = await pool.query(query, [usuarioSolicitante]);
