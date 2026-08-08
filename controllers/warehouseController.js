@@ -3,28 +3,33 @@ const pool = require('../config/database'); // ⚠️ Asegúrate de que esta rut
 const mqttService = require('../services/mqttService');
 // controllers/warehouseController.js
 
+// controllers/warehouseController.js
+
 const obtenerAlmacen = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
         
+        console.log(`🔍 Solicitando inventario de almacén con filtro user_id:`, user_id);
+
         let query = `
             SELECT p.* 
             FROM productos_almacen p
-            JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
+            LEFT JOIN usuarios_duenos u ON p.id_dueno = u.id
         `;
         let values = [];
 
         if (user_id) {
-            // MAGIA: Busca si el parámetro es el correo O es el número de ID
-            query += ` WHERE u.email = $1 OR u.id::text = $1`;
+            // Filtra por ID numérico, por correo, o permite ver los que tengan id_dueno nulo (para evitar que se oculten)
+            query += ` WHERE p.id_dueno::text = $1 OR u.email = $1 OR p.id_dueno IS NULL`;
             values.push(user_id);
-            console.log(`Buscando productos de almacén para el usuario/ID: ${user_id}`);
         }
 
         query += ' ORDER BY p.id DESC';
 
         const result = await pool.query(query, values);
         
+        console.log(`📦 Productos encontrados en almacén: ${result.rowCount}`);
+
         // Devolvemos la estructura exacta que Lovable espera
         res.json({
             success: true,
