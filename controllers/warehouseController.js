@@ -3,26 +3,27 @@ const pool = require('../config/database'); // ⚠️ Asegúrate de que esta rut
 
 const obtenerAlmacen = async (req, res) => {
     try {
-        // Atrapamos el user_id que viene de React
-        const { user_id } = req.query; 
+        // Atrapamos el correo de Supabase sin importar el nombre de la variable que use Lovable
+        const user_id = req.query.user_id || req.query.user || req.query.email; 
 
         let query = 'SELECT * FROM productos_almacen';
         let values = [];
 
-        // Si mandaron un usuario, filtramos. Si no, devolvemos un arreglo vacío o todo (por seguridad, filtramos)
+        // Filtramos por el correo del usuario (id_dueno) asegurando que sea texto (::text)
         if (user_id) {
-            query += ' WHERE id_dueno = $1 ORDER BY id DESC';
+            query += ' WHERE id_dueno::text = $1 ORDER BY id DESC';
             values.push(user_id);
+            console.log(`Buscando productos de almacén para el usuario: ${user_id}`);
         } else {
             query += ' ORDER BY id DESC'; 
+            console.log(`Obteniendo todos los productos (sin filtrar usuario)`);
         }
 
         const result = await pool.query(query, values);
         
-        res.json({
-            success: true,
-            productos: result.rows
-        });
+        // EL CAMBIO MÁGICO: Devolvemos la lista DIRECTAMENTE para que Lovable la pinte
+        res.json(result.rows);
+        
     } catch (error) {
         console.error('Error al obtener el almacén:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
