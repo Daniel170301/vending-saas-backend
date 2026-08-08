@@ -40,25 +40,18 @@ mqttClient.on('message', async (topic, message) => {
                 if (updateRes.rowCount > 0) {
                     console.log(`✅ Stock descontado. Nuevo stock: ${updateRes.rows[0].stock}`);
 
-// 1. Buscamos al último cliente de Yape con depuración
+// 1. Buscamos el último pago de Yape en general (sin filtrar por máquina)
                     let nombreCliente = "Desconocido";
                     try {
-                        console.log("🔍 Buscando pago en pagos_yape para la máquina:", machine_id);
-                        
                         const yapeRes = await pool.query(
-                            'SELECT nombre_cliente FROM pagos_yape WHERE machine_id = $1 ORDER BY id DESC LIMIT 1',
-                            [machine_id]
+                            'SELECT nombre_cliente FROM pagos_yape ORDER BY id DESC LIMIT 1'
                         );
                         
-                        console.log("📦 Filas encontradas en pagos_yape:", yapeRes.rows);
-
                         if (yapeRes.rowCount > 0 && yapeRes.rows[0].nombre_cliente) {
                             nombreCliente = yapeRes.rows[0].nombre_cliente;
-                        } else {
-                            console.log("⚠️ La consulta no arrojó ningún cliente para este machine_id.");
                         }
                     } catch (err) {
-                        console.log("❌ Error exacto al consultar pagos_yape:", err.message);
+                        console.log("⚠️ Error al obtener el cliente de Yape:", err.message);
                     }
 
                     // 2. Insertamos en el historial con el resultado obtenido
