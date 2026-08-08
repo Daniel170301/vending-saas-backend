@@ -53,33 +53,43 @@ const confirmarDespacho = async (req, res) => {
 // =========================================================================
 // NUEVA FUNCIÓN: Obtener el historial para el panel del Frontend
 // =========================================================================
-// En tu archivo controllers/salesController.js
 const obtenerHistorialVentas = async (req, res) => {
     try {
-        // 1. Atrapamos el user_id que React nos está enviando tan amablemente
-        const { user_id } = req.query; 
+        // 1. Atrapamos cualquiera de las dos formas en que Lovable nos pida los datos:
+        // A) Por MAC específica (desde el panel de una máquina)
+        const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.query.machine_id;
+        // B) Por Dueño (desde el panel general de Ventas en el menú lateral)
+        const user_id = req.query.user_id || req.query.user || req.query.email; 
 
         let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
         let values = [];
 
-        // 2. Si hay user_id (en tu caso, el 3), filtramos cruzando con la tabla maquinas
-        if (user_id) {
+        // 2. Lógica dinámica según lo que pida Lovable
+        if (machine_id) {
+            // Si nos mandan una MAC, filtramos solo esa máquina
+            query = 'SELECT * FROM historial_ventas WHERE machine_id = $1 ORDER BY fecha DESC';
+            values.push(machine_id);
+            console.log(`Buscando ventas para la máquina MAC: ${machine_id}`);
+            
+        } else if (user_id) {
+            // Si nos mandan un usuario, traemos las ventas de TODAS sus máquinas
+            // Agregamos ::text para evitar el error de varchar vs integer que tuvimos antes
             query = `
                 SELECT v.* 
                 FROM historial_ventas v
                 JOIN maquinas m ON v.machine_id = m.machine_id
-                WHERE m.id_dueno = $1 
+                WHERE m.id_dueno::text = $1 
                 ORDER BY v.fecha DESC
             `;
             values.push(user_id);
+            console.log(`Buscando ventas globales para el usuario: ${user_id}`);
         }
 
         const result = await pool.query(query, values);
         
-        res.json({
-            success: true,
-            ventas: result.rows 
-        });
+        // 3. EL CAMBIO MÁGICO: Devolvemos el arreglo DIRECTO que espera Lovable
+        res.json(result.rows);
+
     } catch (error) {
         console.error('Error al obtener el historial de ventas:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
