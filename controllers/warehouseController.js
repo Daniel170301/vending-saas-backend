@@ -194,9 +194,36 @@ const actualizarStock = async (req, res) => {
     }
 };
 
+// Función para eliminar un producto del almacén
+const eliminarProductoAlmacen = async (req, res) => {
+    try {
+        const { id } = req.params;
+        console.log(`🗑️ Eliminando producto del almacén con ID: ${id}`);
+
+        const result = await pool.query(
+            'DELETE FROM productos_almacen WHERE id = $1 RETURNING *',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Producto no encontrado' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Producto eliminado correctamente del almacén'
+        });
+    } catch (error) {
+        console.error('Error al eliminar el producto:', error);
+        res.status(500).json({ success: false, message: 'Error al eliminar en el servidor' });
+    }
+};
+
+// Y asegúrate de exportarla al final junto con los demás:
 module.exports = {
     obtenerAlmacen,
     crearProductoAlmacen,
-    editarProductoAlmacen, 
-    actualizarStock        
+    editarProductoAlmacen,
+    actualizarStock,
+    eliminarProductoAlmacen // <-- No olvides agregarla aquí
 };
