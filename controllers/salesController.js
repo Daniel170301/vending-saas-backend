@@ -6,9 +6,11 @@ const confirmarDespacho = async (req, res) => {
     const { codigo_motor } = req.body;
 
     try {
-        // 1. Reseteamos el estado de venta de la máquina[cite: 6]
-        await pool.query('UPDATE maquinas SET dispense_pending = false WHERE machine_id = $1', [machine_id]);
-
+        // Justo donde detectas el pago de Yape y tienes la variable con el nombre del cliente:
+await pool.query(
+    'UPDATE maquinas SET ultimo_cliente = $1 WHERE machine_id = $2',
+    [nombreClienteDeYape, machine_id]
+);
         if (codigo_motor) {
             // 1. Obtenemos el producto y el último cliente que pagó
             const prodRes = await pool.query('SELECT nombre_producto, precio, stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2', [machine_id, codigo_motor]);
