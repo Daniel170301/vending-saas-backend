@@ -7,6 +7,8 @@ const mqttService = require('../services/mqttService');
 
 // controllers/warehouseController.js
 
+// controllers/warehouseController.js
+
 const obtenerAlmacen = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
@@ -16,19 +18,14 @@ const obtenerAlmacen = async (req, res) => {
         let query = `
             SELECT p.* 
             FROM productos_almacen p
-            LEFT JOIN usuarios_duenos u ON p.id_dueno = u.id
+            LEFT JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
         `;
         let values = [];
 
         if (user_id) {
-            // Si es un correo electrónico, filtramos por u.email
-            if (user_id.includes('@')) {
-                query += ` WHERE u.email = $1 OR p.id_dueno IS NULL`;
-            } else {
-                // Si es un número/ID, hacemos un casting seguro a integer
-                query += ` WHERE p.id_dueno = $1::integer OR p.id_dueno IS NULL`;
-            }
-            values.push(user_id);
+            // Comparamos todo de forma segura usando texto para evitar choques de tipos (integer vs varchar)
+            query += ` WHERE (u.email::text = $1 OR p.id_dueno::text = $1 OR p.id_dueno IS NULL)`;
+            values.push(String(user_id));
         }
 
         query += ' ORDER BY p.id DESC';
