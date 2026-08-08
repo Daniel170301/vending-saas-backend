@@ -9,7 +9,7 @@ const confirmarDespacho = async (req, res) => {
         // Justo donde detectas el pago de Yape y tienes la variable con el nombre del cliente:
 await pool.query(
     'UPDATE maquinas SET ultimo_cliente = $1 WHERE machine_id = $2',
-    [nombreClienteDeYape, machine_id]
+    [nombreDelCliente, machine_id]
 );
         if (codigo_motor) {
             // 1. Obtenemos el producto y el último cliente que pagó
