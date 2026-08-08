@@ -4,18 +4,19 @@ const mqttService = require('../services/mqttService');
 
 // 1. OBTENER INVENTARIO
 // 1. OBTENER INVENTARIO
+// 1. OBTENER INVENTARIO
 const obtenerInventario = async (req, res) => {
-    // ATRAPAMOS LA MAC SIN IMPORTAR CÓMO SE LLAME EN LA RUTA
-    const machine_id = req.params.machine_id || req.params.mac || req.params.id; 
+    // Capturamos cualquier variante de parámetro que use tu archivo de rutas
+    const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.params.mac || Object.values(req.params)[0] || req.query.machine_id; 
     
-    console.log("MAC solicitada por React:", machine_id);
+    console.log("MAC / ID solicitada por React:", machine_id);
+    console.log("Parámetros completos recibidos en la ruta:", req.params);
 
     if (!machine_id) {
         return res.status(400).json({ success: false, message: 'No se envió la MAC de la máquina' });
     }
 
     try {
-        // Consulta con aliases dobles para que Lovable los lea sin errores
         const query = `
             SELECT 
                 id,
@@ -38,12 +39,8 @@ const obtenerInventario = async (req, res) => {
         
         console.log(`Se encontraron ${result.rowCount} productos para esta máquina`);
 
-        res.json({ 
-            success: true, 
-            inventario: result.rows,
-            planogram: result.rows,
-            data: result.rows 
-        });
+        // Devolvemos el ARRAY DIRECTO que espera el frontend de Lovable
+        res.json(result.rows);
     } catch (error) {
         console.error("Error obteniendo inventario:", error);
         res.status(500).json({ success: false, message: 'Error al obtener inventario' });
