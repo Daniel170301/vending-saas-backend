@@ -63,9 +63,9 @@ const obtenerHistorialVentas = async (req, res) => {
         let values = [];
 
         if (machine_id) {
-            // Agregamos un LEFT JOIN para traer el nombre de la máquina específica
+            // CAMBIO AQUÍ: Usamos m.name
             query = `
-                SELECT v.*, m.nombre AS nombre_maquina 
+                SELECT v.*, m.name AS nombre_maquina 
                 FROM historial_ventas v
                 LEFT JOIN maquinas m ON v.machine_id = m.machine_id
                 WHERE v.machine_id = $1 
@@ -75,9 +75,9 @@ const obtenerHistorialVentas = async (req, res) => {
             console.log(`Buscando ventas para la máquina MAC: ${machine_id}`);
             
         } else if (user_id) {
-            // EL TRUCO MAESTRO: Además de traducir el correo, pedimos m.nombre
+            // CAMBIO AQUÍ: Usamos m.name
             query = `
-                SELECT v.*, m.nombre AS nombre_maquina
+                SELECT v.*, m.name AS nombre_maquina
                 FROM historial_ventas v
                 JOIN maquinas m ON v.machine_id = m.machine_id
                 JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
