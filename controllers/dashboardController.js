@@ -1,9 +1,10 @@
 // controllers/dashboardController.js
-const pool = require('../config/database'); // <-- Ajusta esta ruta si tu archivo de conexión se llama diferente
+const pool = require('../config/database'); 
 
 const getDashboardMetrics = async (req, res) => {
     try {
-        const usuarioSolicitante = req.query.user;
+        // Atrapamos el correo de la forma en que Lovable lo envíe
+        const usuarioSolicitante = req.query.user || req.query.email || req.query.user_id;
 
         // Filtro de seguridad
         if (!usuarioSolicitante || usuarioSolicitante === 'desconocido') {
@@ -11,6 +12,7 @@ const getDashboardMetrics = async (req, res) => {
         }
 
         // 1. Consulta SQL para sumar las ventas filtrando por el correo del dueño
+        // APLICAMOS EL TRUCO: m.id_dueno::text = u.id::text
         const queryVentas = `
             SELECT 
                 COALESCE(SUM(CASE WHEN v.fecha >= CURRENT_DATE THEN v.precio ELSE 0 END), 0) AS today,
@@ -19,15 +21,16 @@ const getDashboardMetrics = async (req, res) => {
                 COALESCE(SUM(CASE WHEN v.fecha >= date_trunc('year', CURRENT_DATE) THEN v.precio ELSE 0 END), 0) AS year
             FROM historial_ventas v
             JOIN maquinas m ON v.machine_id = m.machine_id
-            JOIN usuarios_duenos u ON m.id_dueno = u.id
+            JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
             WHERE u.email = $1;
         `;
 
         // 2. Consulta SQL para contar cuántas máquinas tiene este usuario
+        // APLICAMOS EL TRUCO: m.id_dueno::text = u.id::text
         const queryMaquinas = `
             SELECT COUNT(*) as machine_count
             FROM maquinas m
-            JOIN usuarios_duenos u ON m.id_dueno = u.id
+            JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
             WHERE u.email = $1;
         `;
 
@@ -52,6 +55,7 @@ const getDashboardMetrics = async (req, res) => {
         };
 
         res.json(dashboardData);
+
     } catch (error) {
         console.error("Error obteniendo métricas reales:", error);
         res.status(500).json({ success: false, message: "Error del servidor" });
