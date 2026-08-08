@@ -55,10 +55,8 @@ const confirmarDespacho = async (req, res) => {
 // =========================================================================
 const obtenerHistorialVentas = async (req, res) => {
     try {
-        // 1. Atrapamos cualquiera de las dos formas en que Lovable nos pida los datos:
-        // A) Por MAC específica (desde el panel de una máquina)
+        // 1. Atrapamos cualquiera de las dos formas en que Lovable nos pida los datos
         const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.query.machine_id;
-        // B) Por Dueño (desde el panel general de Ventas en el menú lateral)
         const user_id = req.query.user_id || req.query.user || req.query.email; 
 
         let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
@@ -72,13 +70,13 @@ const obtenerHistorialVentas = async (req, res) => {
             console.log(`Buscando ventas para la máquina MAC: ${machine_id}`);
             
         } else if (user_id) {
-            // Si nos mandan un usuario, traemos las ventas de TODAS sus máquinas
-            // Agregamos ::text para evitar el error de varchar vs integer que tuvimos antes
+            // EL TRUCO MAESTRO: Doble JOIN para traducir el correo a ID numérico
             query = `
                 SELECT v.* 
                 FROM historial_ventas v
                 JOIN maquinas m ON v.machine_id = m.machine_id
-                WHERE m.id_dueno::text = $1 
+                JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
+                WHERE u.email = $1 
                 ORDER BY v.fecha DESC
             `;
             values.push(user_id);
@@ -87,7 +85,7 @@ const obtenerHistorialVentas = async (req, res) => {
 
         const result = await pool.query(query, values);
         
-        // 3. EL CAMBIO MÁGICO: Devolvemos el arreglo DIRECTO que espera Lovable
+        // 3. Devolvemos el arreglo DIRECTO que espera Lovable
         res.json(result.rows);
 
     } catch (error) {
