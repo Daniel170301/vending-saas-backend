@@ -3,33 +3,33 @@ const pool = require('../config/database'); // ⚠️ Asegúrate de que esta rut
 const mqttService = require('../services/mqttService');
 const obtenerAlmacen = async (req, res) => {
     try {
-        // Atrapamos el correo de Supabase
-        const user_id = req.query.user_id || req.query.user || req.query.email; 
-
+        const user_id = req.query.user_id || req.query.user || req.query.email;
         let query = 'SELECT * FROM productos_almacen';
         let values = [];
 
         if (user_id) {
-            // EL TRUCO MAESTRO: Unimos con usuarios_duenos para traducir el correo a tu número de ID antiguo
             query = `
                 SELECT p.* 
                 FROM productos_almacen p
                 JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
-                WHERE u.email = $1 
+                WHERE u.email = $1
                 ORDER BY p.id DESC
             `;
             values.push(user_id);
             console.log(`Buscando productos de almacén para el usuario: ${user_id}`);
         } else {
-            query += ' ORDER BY id DESC'; 
-            console.log(`Obteniendo todos los productos (sin filtrar usuario)`);
+            query += ' ORDER BY id DESC';
+            console.log("Obteniendo todos los productos (sin filtrar usuario)");
         }
 
         const result = await pool.query(query, values);
         
-        // Devolvemos la lista DIRECTAMENTE para que Lovable la pinte
-        res.json(result.rows);
-        
+        // CORRECCIÓN AQUÍ: Devolvemos el formato exacto que Lovable espera
+        res.json({
+            success: true,
+            productos: result.rows
+        });
+
     } catch (error) {
         console.error('Error al obtener el almacén:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
