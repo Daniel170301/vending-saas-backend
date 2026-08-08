@@ -41,6 +41,7 @@ mqttClient.on('message', async (topic, message) => {
                     console.log(`✅ Stock descontado. Nuevo stock: ${updateRes.rows[0].stock}`);
 
 // 1. Buscamos el nombre del último cliente que pagó en esta máquina específica
+                    // 1. Buscamos el nombre del último cliente en la máquina
                     let nombreCliente = "Desconocido";
                     try {
                         const maqRes = await pool.query(
@@ -54,12 +55,11 @@ mqttClient.on('message', async (topic, message) => {
                         console.log("⚠️ No se pudo obtener el último cliente:", err.message);
                     }
 
-                    // 2. Guardamos la venta en el historial junto con el nombre del cliente
+                    // 2. Insertamos en el historial con el nombre del cliente encontrado
                     await pool.query(
                         'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, nombre_cliente) VALUES ($1, $2, $3, $4, $5)',
                         [machine_id, codigoMotor, producto.nombre_producto, producto.precio, nombreCliente]
                     );
-                
                     console.log("💾 Venta registrada en historial_ventas con cliente:", nombreCliente);
 
 
