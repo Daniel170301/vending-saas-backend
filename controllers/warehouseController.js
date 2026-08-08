@@ -1,6 +1,6 @@
 // controllers/warehouseController.js
 const pool = require('../config/database'); // ⚠️ Asegúrate de que esta ruta apunte a tu archivo de conexión PostgreSQL
-
+const mqttService = require('../services/mqttService');
 const obtenerAlmacen = async (req, res) => {
     try {
         // Atrapamos el correo de Supabase
@@ -104,20 +104,37 @@ const editarProductoAlmacen = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Producto no encontrado' });
         }
 
-        // ==========================================
-        // 🔮 MAGIA DE SINCRONIZACIÓN DE PRECIOS
+// ==========================================
+        // 🔮 MAGIA DE SINCRONIZACIÓN DE PRECIOS Y MQTT
         // ==========================================
         try {
             const precioFormateado = parseFloat(sale_price || 0).toFixed(2);
-            // Actualizamos TODAS las máquinas que tengan este mismo producto
+            
+            // 1. Actualizamos los precios en la base de datos
             await pool.query(
                 'UPDATE inventario SET precio = $1 WHERE nombre_producto = $2',
                 [precioFormateado, name]
             );
-            console.log(`Precios sincronizados a S/ ${precioFormateado} para el producto: ${name}`);
+            console.log(`Precios sincronizados en BD a S/ ${precioFormateado} para el producto: ${name}`);
+
+            // 2. Buscamos en qué máquinas y motores está este producto para avisarles
+            const maquinasAfectadas = await pool.query(
+                'SELECT machine_id, codigo_motor FROM inventario WHERE nombre_producto = $1',
+                [name]
+            );
+
+            // 3. Le enviamos el comando MQTT a cada máquina que tenga el producto
+            for (let maq of maquinasAfectadas.rows) {
+                const topic = `jaimez/expendedora/${maq.machine_id}/comandos`;
+                const comandoMQTT = `EDITAR:${maq.codigo_motor}:${precioFormateado}`;
+                
+                // Asegúrate de tener mqttService importado al inicio del archivo
+                mqttService.publicarMensaje(topic, comandoMQTT);
+                console.log(`📡 Enviando a ESP32 (${maq.machine_id}): ${comandoMQTT}`);
+            }
+
         } catch (syncError) {
             console.error('Error sincronizando el precio con las máquinas:', syncError);
-            // No detenemos la ejecución, el error de sincronización se registra pero la edición principal fue exitosa
         }
         // ==========================================
 
