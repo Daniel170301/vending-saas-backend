@@ -64,14 +64,14 @@ const crearProductoAlmacen = async (req, res) => {
     }
 };
 
-// NUEVO: Función para editar todos los detalles de un producto
+// NUEVO: Función para editar todos los detalles de un producto (CON SINCRONIZACIÓN)
 const editarProductoAlmacen = async (req, res) => {
     try {
         const { id } = req.params;
         const { 
             name, category, subcategory, unit_cost, 
             sale_price, stock_warehouse, capacidad, unit_type,
-            barcode, image_url, min_stock // <-- AÑADIDOS AQUÍ
+            barcode, image_url, min_stock 
         } = req.body;
 
         const query = `
@@ -87,7 +87,7 @@ const editarProductoAlmacen = async (req, res) => {
             name, category || null, subcategory || null, 
             unit_cost || 0, sale_price || 0, stock_warehouse || 0, 
             capacidad || 10, unit_type || 'unidad', 
-            barcode || null, image_url || null, min_stock || 0, // <-- AÑADIDOS AQUÍ
+            barcode || null, image_url || null, min_stock || 0, 
             id
         ];
 
@@ -97,10 +97,27 @@ const editarProductoAlmacen = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Producto no encontrado' });
         }
 
+        // ==========================================
+        // 🔮 MAGIA DE SINCRONIZACIÓN DE PRECIOS
+        // ==========================================
+        try {
+            const precioFormateado = parseFloat(sale_price || 0).toFixed(2);
+            // Actualizamos TODAS las máquinas que tengan este mismo producto
+            await pool.query(
+                'UPDATE inventario SET precio = $1 WHERE nombre_producto = $2',
+                [precioFormateado, name]
+            );
+            console.log(`Precios sincronizados a S/ ${precioFormateado} para el producto: ${name}`);
+        } catch (syncError) {
+            console.error('Error sincronizando el precio con las máquinas:', syncError);
+            // No detenemos la ejecución, el error de sincronización se registra pero la edición principal fue exitosa
+        }
+        // ==========================================
+
         res.json({
             success: true,
             producto: result.rows[0],
-            message: 'Producto actualizado correctamente'
+            message: 'Producto actualizado y sincronizado en todas las máquinas'
         });
     } catch (error) {
         console.error('Error al actualizar el producto:', error);
