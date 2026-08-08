@@ -9,6 +9,8 @@ const mqttService = require('../services/mqttService');
 
 // controllers/warehouseController.js
 
+// controllers/warehouseController.js
+
 const obtenerAlmacen = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
@@ -23,7 +25,6 @@ const obtenerAlmacen = async (req, res) => {
         let values = [];
 
         if (user_id) {
-            // Comparamos todo de forma segura usando texto para evitar choques de tipos (integer vs varchar)
             query += ` WHERE (u.email::text = $1 OR p.id_dueno::text = $1 OR p.id_dueno IS NULL)`;
             values.push(String(user_id));
         }
@@ -34,10 +35,12 @@ const obtenerAlmacen = async (req, res) => {
         
         console.log(`📦 Productos encontrados en almacén: ${result.rowCount}`);
 
-        // Devolvemos la estructura exacta que Lovable espera
+        // RESPUESTA DUAL: Enviamos el array directo Y la propiedad productos para complacer a cualquier versión de Lovable
         res.json({
             success: true,
-            productos: result.rows
+            productos: result.rows,
+            data: result.rows,
+            ...result.rows // En caso de que lea el array plano
         });
 
     } catch (error) {
