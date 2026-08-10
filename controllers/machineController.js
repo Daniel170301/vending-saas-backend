@@ -53,14 +53,13 @@ const getMachines = async (req, res) => {
     }
 };
 const updateMachine = async (req, res) => {
-    // Obtenemos un cliente exclusivo de la base de datos para hacer una Transacción
     const client = await pool.connect();
     
     try {
-        const { id } = req.params; // El ID que manda React (ej: 's')
+        const { id } = req.params;
         const { name, code, location, brand, model, bill_plate, layout } = req.body;
         
-        await client.query('BEGIN'); // 1. Iniciamos la transacción (Si algo falla, no se guarda nada)
+        await client.query('BEGIN'); // 1. Iniciamos la transacción
 
         // === AUTO-REPARACIÓN DE LA BASE DE DATOS ===
         if (code && id !== code) {
@@ -86,20 +85,80 @@ const updateMachine = async (req, res) => {
             await client.query('DELETE FROM maquinas WHERE machine_id = $1', [id]);
         }
 
-        // === ACTUALIZACIÓN DE DATOS (Lo que el usuario editó en la pantalla) ===
         const targetId = code || id;
         
+        // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
+        // Aquí pasamos el layout tal cual viene para que se guarde en la máquina
         const updateQuery = `
             UPDATE maquinas 
             SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7
             WHERE machine_id = $8
             RETURNING *;
         `;
-        
         const values = [name, code, location, brand, model, bill_plate, layout, targetId];
         const result = await client.query(updateQuery, values);
 
-        await client.query('COMMIT'); // 2. Guardamos todos los cambios de golpe
+        // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
+        
+        // A) BLINDAJE: Si React nos mandó el layout como texto, lo convertimos a objeto JSON real
+        let layoutArray = layout;
+        if (typeof layout === 'string') {
+            try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
+        }
+
+        if (layoutArray && Array.isArray(layoutArray)) {
+            let motoresEnEditor = [];
+
+            layoutArray.forEach(bandeja => {
+                if (bandeja.springs && Array.isArray(bandeja.springs)) {
+                    bandeja.springs.forEach(resorte => {
+                        const codigo = String(resorte.id || resorte.code || resorte.motor || '');
+                        const capacidad = resorte.capacity || resorte.capacidad || 10;
+                        if (codigo) {
+                            motoresEnEditor.push({ codigo, capacidad });
+                        }
+                    });
+                }
+            });
+
+            if (motoresEnEditor.length > 0) {
+                const codigosEditor = motoresEnEditor.map(m => m.codigo);
+                const invRes = await client.query('SELECT codigo_motor FROM inventario WHERE machine_id = $1', [targetId]);
+                const motoresEnDB = invRes.rows.map(row => row.codigo_motor);
+
+                const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
+                const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
+                const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
+
+                // B) Eliminamos resortes antiguos (con corrección de sintaxis PostgreSQL)
+                if (motoresParaEliminar.length > 0) {
+                    await client.query(
+                        'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY($2)',
+                        [targetId, motoresParaEliminar]
+                    );
+                }
+
+                // C) Agregamos nuevos
+                if (motoresParaAgregar.length > 0) {
+                    for (let resorte of motoresParaAgregar) {
+                        await client.query(
+                            'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock, capacidad) VALUES ($1, $2, $3, $4, $5, $6)',
+                            [targetId, resorte.codigo, '', 0, 0, resorte.capacidad]
+                        );
+                    }
+                }
+                
+                // D) Actualizamos capacidad
+                for (let resorte of motoresParaActualizar) {
+                    await client.query(
+                        'UPDATE inventario SET capacidad = $1 WHERE machine_id = $2 AND codigo_motor = $3',
+                        [resorte.capacidad, targetId, resorte.codigo]
+                    );
+                }
+            }
+        }
+
+        await client.query('COMMIT'); 
         
 
         // =========================================================
@@ -137,18 +196,22 @@ const updateMachine = async (req, res) => {
 
         res.json({ 
             success: true, 
-            message: 'Máquina guardada y reparada automáticamente.', 
+            message: 'Máquina y planograma sincronizados automáticamente.', 
             data: result.rows[0] 
         });
 
     } catch (error) {
-        await client.query('ROLLBACK'); // Si ocurre un error, cancelamos todo para no romper la BD
-        console.error('Error en la auto-reparación de la máquina:', error);
-        res.status(500).json({ success: false, message: 'Error interno al actualizar.' });
+        await client.query('ROLLBACK'); 
+        console.error('Error en la sincronización de la máquina:', error);
+        
+        // ¡EL TRUCO! Le mandamos a tu celular el texto real del error de la base de datos
+        res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     } finally {
-        client.release(); // 3. Devolvemos el cliente al servidor
+        client.release();
     }
 };
+
+
 const createMachine = async (req, res) => {
     try {
         const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
