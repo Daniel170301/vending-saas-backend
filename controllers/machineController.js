@@ -1,6 +1,6 @@
 // controllers/machineController.js
 const pool = require('../config/database');
-
+const mqttService = require('../services/mqttService'); // <-- AÑADE ESTA LÍNEA
 const getMachines = async (req, res) => {
     try {
         const usuarioSolicitante = req.query.user;
@@ -63,13 +63,9 @@ const updateMachine = async (req, res) => {
         await client.query('BEGIN'); // 1. Iniciamos la transacción (Si algo falla, no se guarda nada)
 
         // === AUTO-REPARACIÓN DE LA BASE DE DATOS ===
-        // Si el ID de la URL ('s') es distinto a la MAC real que envías en el code:
         if (code && id !== code) {
-            
-            // A. Cambiamos el código de la máquina vieja temporalmente para que no choque el UNIQUE
             await client.query('UPDATE maquinas SET code = $1 WHERE machine_id = $2', [`temp_${id}`, id]);
             
-            // B. Clonamos la máquina, pero esta vez con el machine_id correcto (la MAC real)
             await client.query(`
                 INSERT INTO maquinas (
                     machine_id, code, id_dueno, name, location, brand, model, plate, 
@@ -85,11 +81,8 @@ const updateMachine = async (req, res) => {
                 FROM maquinas WHERE machine_id = $2
             `, [code, id]);
             
-            // C. Movemos los productos y las ventas hacia el nuevo machine_id correcto
             await client.query('UPDATE inventario SET machine_id = $1 WHERE machine_id = $2', [code, id]);
             await client.query('UPDATE historial_ventas SET machine_id = $1 WHERE machine_id = $2', [code, id]);
-            
-            // D. Destruimos la máquina defectuosa (la letra 's') que ya quedó vacía
             await client.query('DELETE FROM maquinas WHERE machine_id = $1', [id]);
         }
 
@@ -108,6 +101,40 @@ const updateMachine = async (req, res) => {
 
         await client.query('COMMIT'); // 2. Guardamos todos los cambios de golpe
         
+
+        // =========================================================
+        // <-- 2. AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO -->
+        // =========================================================
+        try {
+            if (layout && Array.isArray(layout)) {
+                const topic = `jaimez/expendedora/${targetId}/comandos`; 
+                
+                for (const bandeja of layout) {
+                    if (bandeja.springs && Array.isArray(bandeja.springs)) {
+                        for (const resorte of bandeja.springs) {
+                            // Toma el precio del resorte (revisa si Lovable te lo manda como precio o sale_price)
+                            const precioDelMotor = resorte.precio || resorte.sale_price; 
+                            
+                            // Si el motor existe y tiene un precio asignado, lo enviamos
+                            if (resorte.codigo_motor && precioDelMotor != null && parseFloat(precioDelMotor) > 0) {
+                                const precioFormateado = parseFloat(precioDelMotor).toFixed(2);
+                                const comandoMQTT = `EDITAR:${resorte.codigo_motor}:${precioFormateado}`;
+                                
+                                mqttService.publicarMensaje(topic, comandoMQTT);
+                                console.log(`Enviando a ESP32 (${targetId}): ${comandoMQTT}`);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (mqttError) {
+            console.error('Error enviando comandos MQTT a la máquina:', mqttError);
+        }
+        // =========================================================
+        // <-- AQUI TERMINA LO NUEVO -->
+        // =========================================================
+
+
         res.json({ 
             success: true, 
             message: 'Máquina guardada y reparada automáticamente.', 
