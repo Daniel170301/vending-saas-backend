@@ -161,23 +161,23 @@ const updateMachine = async (req, res) => {
         await client.query('COMMIT'); 
         
 
-        // =========================================================
-        // <-- 2. AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO -->
-        // =========================================================
+// <-- 2. AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO ->
         try {
-            if (layout && Array.isArray(layout)) {
+            // ¡CORRECCIÓN AQUÍ! Usamos layoutArray en vez de layout
+            if (layoutArray && Array.isArray(layoutArray)) {
                 const topic = `jaimez/expendedora/${targetId}/comandos`; 
                 
-                for (const bandeja of layout) {
+                for (const bandeja of layoutArray) {
                     if (bandeja.springs && Array.isArray(bandeja.springs)) {
                         for (const resorte of bandeja.springs) {
-                            // Toma el precio del resorte (revisa si Lovable te lo manda como precio o sale_price)
+                            
+                            // Hacemos la búsqueda del motor súper robusta, igual que en tu código superior
+                            const codigoMotor = String(resorte.codigo_motor || resorte.code || resorte.motor || resorte.id || '');
                             const precioDelMotor = resorte.precio || resorte.sale_price; 
                             
-                            // Si el motor existe y tiene un precio asignado, lo enviamos
-                            if (resorte.codigo_motor && precioDelMotor != null && parseFloat(precioDelMotor) > 0) {
+                            if (codigoMotor && precioDelMotor != null && parseFloat(precioDelMotor) > 0) {
                                 const precioFormateado = parseFloat(precioDelMotor).toFixed(2);
-                                const comandoMQTT = `EDITAR:${resorte.codigo_motor}:${precioFormateado}`;
+                                const comandoMQTT = `EDITAR:${codigoMotor}:${precioFormateado}`;
                                 
                                 mqttService.publicarMensaje(topic, comandoMQTT);
                                 console.log(`Enviando a ESP32 (${targetId}): ${comandoMQTT}`);
@@ -189,9 +189,7 @@ const updateMachine = async (req, res) => {
         } catch (mqttError) {
             console.error('Error enviando comandos MQTT a la máquina:', mqttError);
         }
-        // =========================================================
         // <-- AQUI TERMINA LO NUEVO -->
-        // =========================================================
 
 
         res.json({ 
