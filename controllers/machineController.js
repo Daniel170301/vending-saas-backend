@@ -54,29 +54,44 @@ const getMachines = async (req, res) => {
 };
 const updateMachine = async (req, res) => {
     const client = await pool.connect();
-    
     try {
         const { id } = req.params;
         const { name, code, location, brand, model, bill_plate, layout } = req.body;
-        
+
+        // 🔥 BLINDAJE ABSOLUTO DEL JSON: Limpiamos y aseguramos el formato para PostgreSQL
+        let layoutSeguro = '[]';
+        if (layout) {
+            if (typeof layout === 'string') {
+                try {
+                    layoutSeguro = JSON.stringify(JSON.parse(layout));
+                } catch(e) {
+                    console.log("⚠️ Advertencia: JSON del layout malformado, se usará vacío por seguridad.");
+                }
+            } else {
+                layoutSeguro = JSON.stringify(layout);
+            }
+        }
+
         await client.query('BEGIN'); // 1. Iniciamos la transacción
 
-        // === AUTO-REPARACIÓN DE LA BASE DE DATOS ===
+        // === 1. AUTO-REPARACIÓN DE LA BASE DE DATOS ===
         if (code && id !== code) {
             await client.query('UPDATE maquinas SET code = $1 WHERE machine_id = $2', [`temp_${id}`, id]);
             
             await client.query(`
                 INSERT INTO maquinas (
-                    machine_id, code, id_dueno, name, location, brand, model, plate, 
-                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled, 
-                    bill_brand, bill_model, bill_plate, layout, ubicacion, 
-                    pasarela_tipo, numero_celular, dispense_pending, fecha_instalacion, ultimo_cliente
+                    machine_id, code, id_dueno, name, location, brand, model, plate,
+                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled,
+                    bill_brand, bill_model, bill_plate, layout, ubicacion,
+                    pasarela_tipo, numero_celular, dispense_pending,
+                    fecha_instalacion, ultimo_cliente
                 )
                 SELECT 
-                    $1, $1, id_dueno, name, location, brand, model, plate, 
-                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled, 
-                    bill_brand, bill_model, bill_plate, layout, ubicacion, 
-                    pasarela_tipo, numero_celular, dispense_pending, fecha_instalacion, ultimo_cliente
+                    $1, $1, id_dueno, name, location, brand, model, plate,
+                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled,
+                    bill_brand, bill_model, bill_plate, layout, ubicacion,
+                    pasarela_tipo, numero_celular, dispense_pending,
+                    fecha_instalacion, ultimo_cliente
                 FROM maquinas WHERE machine_id = $2
             `, [code, id]);
             
@@ -86,22 +101,21 @@ const updateMachine = async (req, res) => {
         }
 
         const targetId = code || id;
-        
+
         // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
-        // Aquí pasamos el layout tal cual viene para que se guarde en la máquina
         const updateQuery = `
             UPDATE maquinas 
-            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7
-            WHERE machine_id = $8
-            RETURNING *;
+            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7 
+            WHERE machine_id = $8 
+            RETURNING *
         `;
-        const values = [name, code, location, brand, model, bill_plate, layout, targetId];
+        // 🔥 Usamos layoutSeguro en lugar de la variable cruda
+        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, targetId];
         const result = await client.query(updateQuery, values);
 
         // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
-        
-        // A) BLINDAJE: Si React nos mandó el layout como texto, lo convertimos a objeto JSON real
-        let layoutArray = layout;
+        // Leemos el layout seguro ya parseado perfectamente
+        let layoutArray = JSON.parse(layoutSeguro);
         if (typeof layout === 'string') {
             try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
         }
