@@ -59,31 +59,47 @@ await pool.query(
 const obtenerHistorialVentas = async (req, res) => {
     try {
         const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.query.machine_id;
-        const user_id = req.query.user_id || req.query.user || req.query.email; 
+        const user_id = req.query.user_id || req.query.user || req.query.email;
 
-        let query = 'SELECT * FROM historial_ventas ORDER BY fecha DESC';
+        // Consulta base por defecto
+        let query = `
+            SELECT v.*, 
+                   COALESCE(p.unit_cost, 0) AS unit_cost,
+                   COALESCE(p.unit_cost, 0) AS costo
+            FROM historial_ventas v
+            LEFT JOIN productos_almacen p ON v.nombre_producto = p.name
+            ORDER BY v.fecha DESC
+        `;
         let values = [];
 
         if (machine_id) {
-            // CAMBIO AQUÍ: Usamos m.name
+            // CAMBIO AQUÍ: Traemos nombre de la máquina y el costo del almacén
             query = `
-                SELECT v.*, m.name AS nombre_maquina 
+                SELECT v.*, 
+                       m.name AS nombre_maquina,
+                       COALESCE(p.unit_cost, 0) AS unit_cost,
+                       COALESCE(p.unit_cost, 0) AS costo
                 FROM historial_ventas v
                 LEFT JOIN maquinas m ON v.machine_id = m.machine_id
-                WHERE v.machine_id = $1 
+                LEFT JOIN productos_almacen p ON v.nombre_producto = p.name
+                WHERE v.machine_id = $1
                 ORDER BY v.fecha DESC
             `;
             values.push(machine_id);
             console.log(`Buscando ventas para la máquina MAC: ${machine_id}`);
-            
+
         } else if (user_id) {
-            // CAMBIO AQUÍ: Usamos m.name
+            // CAMBIO AQUÍ: Traemos nombre de la máquina y el costo del almacén para el usuario global
             query = `
-                SELECT v.*, m.name AS nombre_maquina
+                SELECT v.*, 
+                       m.name AS nombre_maquina,
+                       COALESCE(p.unit_cost, 0) AS unit_cost,
+                       COALESCE(p.unit_cost, 0) AS costo
                 FROM historial_ventas v
                 JOIN maquinas m ON v.machine_id = m.machine_id
                 JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
-                WHERE u.email = $1 
+                LEFT JOIN productos_almacen p ON v.nombre_producto = p.name
+                WHERE u.email = $1
                 ORDER BY v.fecha DESC
             `;
             values.push(user_id);
@@ -91,7 +107,6 @@ const obtenerHistorialVentas = async (req, res) => {
         }
 
         const result = await pool.query(query, values);
-        
         res.json(result.rows);
 
     } catch (error) {
