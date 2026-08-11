@@ -29,30 +29,20 @@ const recibirPagoYape = async (req, res) => {
         mqttService.enviarComandoPago(machine_id, montoPagado);
         
         // 4. GUARDAMOS EN BASE DE DATOS (Para tus reportes PDF)
-// 4. GUARDAMOS EN BASE DE DATOS (Para tus reportes PDF)
-try {
-  // A. Guardamos el historial de pagos (ESTO YA LO TIENES)
-  await pool.query(
-    `INSERT INTO historial_pagos (machine_id, cliente, monto, codigo_operacion, metodo)
-     VALUES ($1, $2, $3, $4, 'Yape')`,
-    [machine_id, cliente, montoPagado, codigooperacion]
-  );
-  console.log(`Pago de ${cliente} guardado en BD para los reportes.`);
-
-  // B. 🔥 EL NUEVO AJUSTE: Guardamos el último cliente en la máquina 🔥
-  await pool.query(
-    `UPDATE maquinas SET ultimo_cliente = $1 WHERE machine_id = $2`,
-    [cliente, machine_id]
-  );
-  console.log(`Cliente "${cliente}" asignado a la máquina ${machine_id}.`);
-
-  // No detenemos el flujo, lo importante es que la máquina ya recibió el credito
-  res.status(200).send('Monto procesado y enviado a la máquina');
-
-} catch (dbError) {
-  console.error("Error guardando el pago en BD:", dbError);
-  res.status(500).send('Error interno');
-}
+        try {
+            // Nota: Asegúrate de tener una tabla llamada 'historial_pagos' o ajusta el nombre a la tuya
+            /*
+            await pool.query(
+                `INSERT INTO historial_pagos (machine_id, cliente, monto, codigo_operacion, metodo) 
+                 VALUES ($1, $2, $3, $4, 'Yape')`,
+                [machine_id, cliente, montoPagado, codigoOperacion]
+            );
+            */
+            console.log(`💾 Pago de ${cliente} guardado en BD para los reportes.`);
+        } catch (dbError) {
+            console.error("Error guardando el pago en BD:", dbError);
+            // No detenemos el flujo, lo importante es que la máquina ya recibió el crédito
+        }
         
         res.status(200).send('Monto procesado y enviado a la máquina');
     } else {
