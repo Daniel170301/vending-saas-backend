@@ -106,14 +106,17 @@ const updateMachine = async (req, res) => {
             try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
         }
 
-        if (layoutArray && Array.isArray(layoutArray)) {
+if (layoutArray && Array.isArray(layoutArray)) {
             let motoresEnEditor = [];
-
             layoutArray.forEach(bandeja => {
                 if (bandeja.springs && Array.isArray(bandeja.springs)) {
                     bandeja.springs.forEach(resorte => {
                         const codigo = String(resorte.id || resorte.code || resorte.motor || '');
-                        const capacidad = resorte.capacity || resorte.capacidad || 10;
+                        
+                        // 🔥 MEJORA 1: Extraemos solo el número. Si Lovable envía "cap 15", esto extrae el 15.
+                        let rawCapacidad = resorte.capacity || resorte.capacidad || 10;
+                        const capacidad = parseInt(String(rawCapacidad).replace(/\D/g, '')) || 10;
+
                         if (codigo) {
                             motoresEnEditor.push({ codigo, capacidad });
                         }
@@ -126,19 +129,20 @@ const updateMachine = async (req, res) => {
                 const invRes = await client.query('SELECT codigo_motor FROM inventario WHERE machine_id = $1', [targetId]);
                 const motoresEnDB = invRes.rows.map(row => row.codigo_motor);
 
-                const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
-                const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
-                const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
+                // IMPORTANTE: Aseguramos que los filtros tengan el símbolo "!" para detectar las diferencias
+const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
+const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
+const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
 
-                // B) Eliminamos resortes antiguos (con corrección de sintaxis PostgreSQL)
+                // B) Eliminamos resortes antiguos
                 if (motoresParaEliminar.length > 0) {
                     await client.query(
-                        'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY($2)',
+                        'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY ($2)',
                         [targetId, motoresParaEliminar]
                     );
                 }
 
-                // C) Agregamos nuevos
+                // C) Agregamos nuevos con la capacidad detectada
                 if (motoresParaAgregar.length > 0) {
                     for (let resorte of motoresParaAgregar) {
                         await client.query(
@@ -147,18 +151,21 @@ const updateMachine = async (req, res) => {
                         );
                     }
                 }
-                
-                // D) Actualizamos capacidad
-                for (let resorte of motoresParaActualizar) {
-                    await client.query(
-                        'UPDATE inventario SET capacidad = $1 WHERE machine_id = $2 AND codigo_motor = $3',
-                        [resorte.capacidad, targetId, resorte.codigo]
-                    );
+
+                // D) 🔥 MEJORA 2: Actualizamos capacidad (Sintaxis SQL arreglada)
+                if (motoresParaActualizar.length > 0) {
+                    for (let resorte of motoresParaActualizar) {
+                        await client.query(
+                            'UPDATE inventario SET capacidad = $1 WHERE machine_id = $2 AND codigo_motor = $3',
+                            [resorte.capacidad, targetId, resorte.codigo]
+                        );
+                    }
                 }
             }
         }
-
-        await client.query('COMMIT'); 
+        
+        // Finalizamos la transacción de Base de Datos
+        await client.query('COMMIT');
         
 
 // <-- 2. AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO ->
