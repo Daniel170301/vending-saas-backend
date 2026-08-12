@@ -20,7 +20,7 @@ router.put('/actualizar', actualizarInventario);  // El PUT original que ya ten√
 
 // 3. REGISTRAR venta
 router.post('/vender', registrarVenta);
-
+router.post('/quitar-stock', inventoryController.quitarStockYDevolverAlmacen);
 // 4. ELIMINAR un resorte espec√≠fico
 router.delete('/:machine_id/:codigo_motor', deleteSpring);
 

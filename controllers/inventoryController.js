@@ -129,39 +129,77 @@ const registrarVenta = async (req, res) => {
     }
 };
 
-// 4. NUEVO: ELIMINAR UN RESORTE ESPECÍFICO DEL INVENTARIO
+// 4. NUEVO: ELIMINAR UN RESORTE ESPECIFICO DEL INVENTARIO
 const deleteSpring = async (req, res) => {
     try {
         const { machine_id, codigo_motor } = req.params;
-
-        console.log(`Eliminando resorte M${codigo_motor} de la máquina: ${machine_id}`);
-
+        console.log(`Eliminando resorte #${codigo_motor} de la máquina: ${machine_id}`);
         const deleteQuery = `
-            DELETE FROM inventario 
+            DELETE FROM inventario
             WHERE machine_id = $1 AND codigo_motor = $2
             RETURNING *;
         `;
-
         const result = await pool.query(deleteQuery, [machine_id, codigo_motor]);
-
         if (result.rowCount === 0) {
             return res.status(404).json({ success: false, message: 'El resorte no existía en la base de datos.' });
         }
-
         res.json({
             success: true,
-            message: `Resorte M${codigo_motor} eliminado correctamente.`
+            message: `Resorte #${codigo_motor} eliminado correctamente.`
         });
-
     } catch (error) {
         console.error('Error al eliminar resorte:', error);
         res.status(500).json({ success: false, message: 'Error al eliminar el resorte en el servidor.' });
     }
 };
 
+// 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN
+const quitarStockYDevolverAlmacen = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { machine_id, codigo_motor } = req.body;
+        
+        await client.query('BEGIN'); // Iniciamos la transacción
+
+        // 1. Buscamos qué producto había en ese motor y cuánto stock tenía
+        const invRes = await client.query(
+            'SELECT nombre_producto, stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
+            [machine_id, codigo_motor]
+        );
+
+        if (invRes.rows.length > 0) {
+            const { nombre_producto, stock } = invRes.rows[0];
+
+            // 2. Si había stock, lo devolvemos sumándolo al almacén general
+            if (stock > 0 && nombre_producto) {
+                await client.query(
+                    'UPDATE productos_almacen SET stock_warehouse = stock_warehouse + $1 WHERE name = $2',
+                    [stock, nombre_producto]
+                );
+            }
+
+            // 3. Vaciamos el motor en la máquina
+            await client.query(
+                "UPDATE inventario SET stock = 0, nombre_producto = NULL, precio = 0 WHERE machine_id = $1 AND codigo_motor = $2",
+                [machine_id, codigo_motor]
+            );
+        }
+
+        await client.query('COMMIT'); // Guardamos los cambios
+        res.json({ success: true, message: 'Stock devuelto al almacén y motor vaciado.' });
+
+    } catch (error) {
+        await client.query('ROLLBACK'); // Si hay error, deshacemos todo para no perder inventario
+        console.error("Error devolviendo stock:", error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor.' });
+    } finally {
+        client.release(); // Liberamos la conexión
+    }
+};
 module.exports = {
     obtenerInventario,
     actualizarInventario,
     registrarVenta,
-    deleteSpring // <-- Ahora sí la exportamos correctamente
+    deleteSpring,
+    quitarStockYDevolverAlmacen// <-- Ahora sí la exportamos correctamente
 };
