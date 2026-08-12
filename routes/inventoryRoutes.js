@@ -7,7 +7,8 @@ const {
     obtenerInventario, 
     actualizarInventario, 
     registrarVenta,
-    deleteSpring 
+    deleteSpring,
+    quitarStockYDevolverAlmacen // <-- 1. LO AGREGAMOS AQUÍ
 } = require('../controllers/inventoryController');
 
 // 1. OBTENER inventario por MAC
@@ -20,8 +21,11 @@ router.put('/actualizar', actualizarInventario);  // El PUT original que ya ten�
 
 // 3. REGISTRAR venta
 router.post('/vender', registrarVenta);
-router.post('/quitar-stock', inventoryController.quitarStockYDevolverAlmacen);
-// 4. ELIMINAR un resorte específico
+
+// 4. QUITAR STOCK
+router.post('/quitar-stock', quitarStockYDevolverAlmacen); // <-- 2. QUITAMOS "inventoryController." AQUÍ
+
+// 5. ELIMINAR un resorte específico
 router.delete('/:machine_id/:codigo_motor', deleteSpring);
 
 module.exports = router;
