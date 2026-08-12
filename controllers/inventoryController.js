@@ -153,15 +153,16 @@ const deleteSpring = async (req, res) => {
     }
 };
 
-// 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN
+// 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN (VERSIÓN PARCIAL)
 const quitarStockYDevolverAlmacen = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { machine_id, codigo_motor } = req.body;
+        // Ahora recibimos la cantidad específica que Lovable nos manda
+        const { machine_id, codigo_motor, cantidad_a_quitar } = req.body;
         
         await client.query('BEGIN'); // Iniciamos la transacción
 
-        // 1. Buscamos qué producto había en ese motor y cuánto stock tenía
+        // 1. Buscamos qué producto había en ese motor y cuánto stock total tiene
         const invRes = await client.query(
             'SELECT nombre_producto, stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
             [machine_id, codigo_motor]
@@ -169,27 +170,41 @@ const quitarStockYDevolverAlmacen = async (req, res) => {
 
         if (invRes.rows.length > 0) {
             const { nombre_producto, stock } = invRes.rows[0];
+            
+            // Si Lovable no manda cantidad, asumimos que quiere quitar todo el stock
+            const cantidadAQuitar = cantidad_a_quitar ? parseInt(cantidad_a_quitar) : stock;
 
-            // 2. Si había stock, lo devolvemos sumándolo al almacén general
-            if (stock > 0 && nombre_producto) {
+            // 2. Solo hacemos el proceso si la cantidad es válida
+            if (cantidadAQuitar > 0 && cantidadAQuitar <= stock && nombre_producto) {
+                
+                // A. Devolvemos la cantidad exacta al almacén general
                 await client.query(
                     'UPDATE productos_almacen SET stock_warehouse = stock_warehouse + $1 WHERE name = $2',
-                    [stock, nombre_producto]
+                    [cantidadAQuitar, nombre_producto]
                 );
-            }
 
-            // 3. Vaciamos el motor en la máquina
-            await client.query(
-                "UPDATE inventario SET stock = 0, nombre_producto = NULL, precio = 0 WHERE machine_id = $1 AND codigo_motor = $2",
-                [machine_id, codigo_motor]
-            );
+                // B. Verificamos si se vació el motor por completo o si queda algo
+                if (cantidadAQuitar === stock) {
+                    // Se quitó todo, vaciamos el motor completamente
+                    await client.query(
+                        "UPDATE inventario SET stock = 0, nombre_producto = NULL, precio = 0 WHERE machine_id = $1 AND codigo_motor = $2",
+                        [machine_id, codigo_motor]
+                    );
+                } else {
+                    // Solo se quitó una parte, así que restamos el stock pero mantenemos el producto
+                    await client.query(
+                        "UPDATE inventario SET stock = stock - $1 WHERE machine_id = $2 AND codigo_motor = $3",
+                        [cantidadAQuitar, machine_id, codigo_motor]
+                    );
+                }
+            }
         }
 
         await client.query('COMMIT'); // Guardamos los cambios
-        res.json({ success: true, message: 'Stock devuelto al almacén y motor vaciado.' });
+        res.json({ success: true, message: 'Stock actualizado y devuelto al almacén.' });
 
     } catch (error) {
-        await client.query('ROLLBACK'); // Si hay error, deshacemos todo para no perder inventario
+        await client.query('ROLLBACK'); // Si hay error, deshacemos todo
         console.error("Error devolviendo stock:", error);
         res.status(500).json({ success: false, message: 'Error interno del servidor.' });
     } finally {
