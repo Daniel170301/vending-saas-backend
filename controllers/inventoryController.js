@@ -154,6 +154,7 @@ const deleteSpring = async (req, res) => {
 };
 
 // 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN (VERSIÓN PARCIAL)
+// 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN (VERSIÓN PARCIAL)
 const quitarStockYDevolverAlmacen = async (req, res) => {
     const client = await pool.connect();
     try {
