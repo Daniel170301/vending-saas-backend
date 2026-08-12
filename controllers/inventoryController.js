@@ -201,5 +201,5 @@ module.exports = {
     actualizarInventario,
     registrarVenta,
     deleteSpring,
-    quitarStockYDevolverAlmacen// <-- Ahora sí la exportamos correctamente
+    quitarStockYDevolverAlmacen // <-- Ahora sí la exportamos correctamente
 };
