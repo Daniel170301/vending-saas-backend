@@ -1,28 +1,30 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { login } = require('../controllers/authController');
-// Necesitamos importar 'pool' para conectar a la BD
-const pool = require('../config/db'); // Ajusta esta ruta si tu conexión está en otro lado
+const pool = require('../config/database'); 
 
-// Ruta original
-router.post('/login', login);
+// 1. IMPORTACIÓN A PRUEBA DE BALAS
+// Traemos todo el archivo en lugar de desestructurar, así evitamos que se pierda la función
+const authController = require('../controllers/authController');
 
-// NUEVA RUTA DE GOOGLE
+// 2. Ruta de login normal (Llamamos a la función explícitamente)
+router.post('/login', authController.login);
+
+// 3. Ruta de Google
 router.post('/google', async (req, res) => {
   try {
     const { email, nombre } = req.body;
     
-    // 1. Buscamos si el usuario ya existe
-    const q = await pool.query('SELECT * FROM usuarios_duenos WHERE correo = $1', [email]);
+    // Buscamos si el usuario ya existe
+    const q = await pool.query('SELECT * FROM usuarios_duenos WHERE email = $1', [email]);
     
     if (q.rows.length > 0) {
       return res.json({ user: q.rows[0] });
     }
 
-    // 2. Si no existe, lo insertamos
+    // Si no existe, lo insertamos
     const ins = await pool.query(
-      'INSERT INTO usuarios_duenos (correo, nombre, rol) VALUES ($1, $2, $3) RETURNING *',
+      'INSERT INTO usuarios_duenos (email, nombre, rol) VALUES ($1, $2, $3) RETURNING *',
       [email, nombre || email, 'dueno']
     );
     

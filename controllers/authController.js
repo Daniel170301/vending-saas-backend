@@ -1,15 +1,16 @@
-// routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { login } = require('../controllers/authController');
 
-// 1. AQUÍ ESTÁ LA RUTA CORRECTA ARREGLADA:
+// 1. Conexión a tu base de datos
 const pool = require('../config/database'); 
 
-// Ruta de login normal
-router.post('/login', login);
+// 2. CAMBIO CLAVE: Importamos el controlador completo
+const authController = require('../controllers/authController');
 
-// Ruta de Google (Corregida con la columna "email")
+// 3. CAMBIO CLAVE: Llamamos a la función desde el controlador
+router.post('/login', authController.login);
+
+// Ruta de Google
 router.post('/google', async (req, res) => {
   try {
     const { email, nombre } = req.body;
