@@ -28,11 +28,11 @@ await pool.query(
                     [nuevoStock, machine_id, codigo_motor]
                 );
 
-                // 4. Registramos la venta en el nuevo historial
-                await pool.query(
-                    'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio) VALUES ($1, $2, $3, $4)',
-                    [machine_id, codigo_motor, producto.nombre_producto, producto.precio]
-                );
+              // 4. Registramos la venta en el nuevo historial
+await pool.query(
+    'INSERT INTO historial_ventas (machine_id, codigo_motor, nombre_producto, precio, nombre_cliente) VALUES ($1, $2, $3, $4, $5)',
+    [machine_id, codigo_motor, producto.nombre_producto, producto.precio, cliente]
+);
 
                 // 5. SISTEMA DE ALARMAS
                 if (nuevoStock <= 3) {
