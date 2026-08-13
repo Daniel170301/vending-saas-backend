@@ -1,16 +1,14 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/database'); 
 
-// 1. IMPORTACIÓN A PRUEBA DE BALAS
-// Traemos todo el archivo en lugar de desestructurar, así evitamos que se pierda la función
+const pool = require('../config/database'); 
 const authController = require('../controllers/authController');
 
-// 2. Ruta de login normal (Llamamos a la función explícitamente)
+// Ruta de login normal
 router.post('/login', authController.login);
 
-// 3. Ruta de Google
+// Ruta de Google
 router.post('/google', async (req, res) => {
   try {
     const { email, nombre } = req.body;
