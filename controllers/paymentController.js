@@ -4,18 +4,15 @@ const mqttService = require('../services/mqttService');
 const pool = require('../config/database'); 
 
 const recibirPagoYape = async (req, res) => {
-    // 1. Capturamos la MAC dinámicamente desde la URL (Ej: /api/pago-recibido/D4-8A...)
+    // 1. Capturamos la MAC dinámicamente desde la URL
     const machine_id = req.params.machine_id;
     const textoNotificacion = req.body || "";
     
     console.log(`📩 Notificación para máquina [${machine_id}]:\n${textoNotificacion}`);
 
     // 2. EXTRACCIÓN INTELIGENTE (Regex)
-    // Extrae monto (Ej: S/ 30.00)
     const montoMatch = textoNotificacion.match(/S\/\s*(\d+(?:\.\d+)?)/);
-    // Extrae nombre (Todo lo que está antes de "te envió un pago")
     const nombreMatch = textoNotificacion.match(/(.*?)\s+te envió un pago/i);
-    // Extrae código de seguridad (Los números después de "seguridad es:")
     const codigoMatch = textoNotificacion.match(/seguridad es:\s*(\d+)/i);
 
     if (montoMatch) {
@@ -25,24 +22,22 @@ const recibirPagoYape = async (req, res) => {
 
         console.log(`✅ YAPE DETECTADO -> Cliente: ${cliente} | Monto: S/ ${montoPagado} | Cód: ${codigoOperacion}`);
         
-        // 3. Enviamos la orden física a la máquina vía MQTT
-        mqttService.enviarComandoPago(machine_id, montoPagado);
-        
-        // 4. GUARDAMOS EN BASE DE DATOS (Para tus reportes PDF)
+        // 3. GUARDAMOS EN BASE DE DATOS (El nombre del cliente para enlazarlo con la venta)
         try {
-            // Nota: Asegúrate de tener una tabla llamada 'historial_pagos' o ajusta el nombre a la tuya
-            /*
+            // Actualizamos la máquina con el nombre de quien acaba de yapear
             await pool.query(
-                `INSERT INTO historial_pagos (machine_id, cliente, monto, codigo_operacion, metodo) 
-                 VALUES ($1, $2, $3, $4, 'Yape')`,
-                [machine_id, cliente, montoPagado, codigoOperacion]
+                'UPDATE maquinas SET ultimo_cliente = $1 WHERE machine_id = $2',
+                [cliente, machine_id]
             );
-            */
-            console.log(`💾 Pago de ${cliente} guardado en BD para los reportes.`);
+            console.log(`💾 Cliente ${cliente} enlazado a la máquina en la BD.`);
+            
         } catch (dbError) {
-            console.error("Error guardando el pago en BD:", dbError);
-            // No detenemos el flujo, lo importante es que la máquina ya recibió el crédito
+            console.error("❌ Error guardando el cliente temporal en BD:", dbError);
         }
+
+        // 4. Enviamos la orden física a la máquina vía MQTT
+        // Es mejor hacerlo DESPUÉS de guardar en la BD, así nos aseguramos de que el nombre ya esté ahí cuando la máquina responda.
+        mqttService.enviarComandoPago(machine_id, montoPagado);
         
         res.status(200).send('Monto procesado y enviado a la máquina');
     } else {
