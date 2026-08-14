@@ -230,10 +230,9 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
     }
 };
 
-
 const createMachine = async (req, res) => {
   try {
-    const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body; //[cite: 1]
+    const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
     
     // 1. BUSCAMOS EL ID REAL NUMÉRICO DEL USUARIO USANDO SU CORREO
     if (!user_email) {
@@ -245,53 +244,60 @@ const createMachine = async (req, res) => {
        return res.status(404).json({ success: false, message: 'Usuario no encontrado en la base de datos.' });
     }
     
-    // Asignamos el ID numérico (Ej: 12) en lugar del correo
     const id_dueno = userRes.rows[0].id; 
-    
-    // Según tu SQL, 'machine_id' y 'code' suelen ser la MAC. Usaremos el code para ambos.[cite: 1]
-    // Le agregamos un respaldo por si "code" viene vacío.
     const machine_id = code || `TEMP_${Date.now()}`;
     const safeCode = code || machine_id;
 
-    // 2. Insertamos la máquina en tu tabla de PostgreSQL[cite: 1]
+    // 🔥 BLINDAJE ABSOLUTO DEL JSON (Igual que en tu updateMachine) 🔥
+    let layoutSeguro = '[]';
+    if (layout) {
+      if (typeof layout === 'string') {
+        try {
+          layoutSeguro = JSON.stringify(JSON.parse(layout));
+        } catch(e) {
+          console.log("⚠️ Advertencia: JSON inválido en creación, usando vacío.");
+          layoutSeguro = '[]';
+        }
+      } else {
+        layoutSeguro = JSON.stringify(layout);
+      }
+    }
+
+    // 2. Insertamos la máquina en tu tabla de PostgreSQL
     const insertQuery = `
       INSERT INTO maquinas (
         machine_id, code, name, id_dueno, location, brand, model, bill_plate, layout
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *;
-    `; //[cite: 1]
+    `;
     
     const values = [
       machine_id,
       safeCode,
-      name || 'Nueva Máquina', //[cite: 1]
+      name || 'Nueva Máquina',
       id_dueno, 
-      location || '', //[cite: 1]
-      brand || '', //[cite: 1]
-      model || '', //[cite: 1]
-      bill_plate || '', //[cite: 1]
-      layout || '[]' //[cite: 1]
+      location || '',
+      brand || '',
+      model || '',
+      bill_plate || '',
+      layoutSeguro // <-- AQUÍ ENVIAMOS EL JSON 100% PROTEGIDO
     ];
     
-    const result = await pool.query(insertQuery, values); //[cite: 1]
+    const result = await pool.query(insertQuery, values);
     
-    // 3. Le respondemos a React que todo salió perfecto[cite: 1]
+    // 3. Le respondemos a React que todo salió perfecto
     res.status(201).json({
       success: true,
-      message: 'Máquina creada exitosamente', //[cite: 1]
+      message: 'Máquina creada exitosamente',
       data: result.rows[0]
     });
     
   } catch (error) {
-    console.error('Error al crear máquina en PostgreSQL:', error); //[cite: 1]
-    
-    // Manejo de error si el cliente intenta registrar una MAC que ya existe[cite: 1]
-    if (error.code === '23505') { //[cite: 1]
-      return res.status(400).json({ success: false, message: 'El código o MAC de esta máquina ya está registrado.' }); //[cite: 1]
+    console.error('Error al crear máquina en PostgreSQL:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ success: false, message: 'El código o MAC de esta máquina ya está registrado.' });
     }
-    
-    // ¡EL TRUCO DE ORO! Mandamos el error real de la BD al frontend igual que hiciste en updateMachine[cite: 1]
     res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
   }
 };
