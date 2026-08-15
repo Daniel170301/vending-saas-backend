@@ -2,15 +2,19 @@
 const express = require('express');
 const router = express.Router();
 
-// 1. Importamos la nueva función updateMachine junto con getMachines
-const { getMachines, updateMachine, createMachine } = require('../controllers/machineController');
+// 1. IMPORTACIÓN CORREGIDA: Traemos todas las funciones, incluyendo deleteMachine
+const { getMachines, updateMachine, createMachine, deleteMachine } = require('../controllers/machineController');
 
 // GET /api/machines (Para leer la lista)
 router.get('/', getMachines);
-// POST /api/machines (Para CREAR una nueva máquina) <-- ¡ESTA ES LA QUE FALTABA!
+
+// POST /api/machines (Para CREAR una nueva máquina)
 router.post('/', createMachine);
-// 2. Agregamos la ruta PUT (Para actualizar una máquina específica)
-// Esta ruta será accesible en: PUT /api/machines/:id
+
+// PUT /api/machines/:id (Para actualizar una máquina específica)
 router.put('/:id', updateMachine);
-router.delete('/:id', machineController.deleteMachine);
+
+// DELETE /api/machines/:id (Para ELIMINAR una máquina) <-- ¡Arreglado!
+router.delete('/:id', deleteMachine);
+
 module.exports = router;
