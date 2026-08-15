@@ -18,8 +18,8 @@ const obtenerAlmacen = async (req, res) => {
    }
  }
 
- let query = `
-   SELECT p.*
+let query = `
+   SELECT p.*, u.email AS owner_email 
    FROM productos_almacen p
    LEFT JOIN usuarios_duenos u ON p.id_dueno::text = u.id::text
  `;
