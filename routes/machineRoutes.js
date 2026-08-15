@@ -2,19 +2,22 @@
 const express = require('express');
 const router = express.Router();
 
-// 1. IMPORTACIÓN CORREGIDA: Traemos todas las funciones, incluyendo deleteMachine
-const { getMachines, updateMachine, createMachine, deleteMachine } = require('../controllers/machineController');
+// 1. IMPORTACIÓN CORREGIDA: Traemos todas las funciones, incluyendo updateMachineSettings
+const { 
+    getMachines, 
+    updateMachine, 
+    createMachine, 
+    deleteMachine,
+    updateMachineSettings // <-- ¡ESTA ES LA PALABRA QUE FALTABA!
+} = require('../controllers/machineController');
 
-// GET /api/machines (Para leer la lista)
+// 2. TUS RUTAS
 router.get('/', getMachines);
-
-// POST /api/machines (Para CREAR una nueva máquina)
 router.post('/', createMachine);
-
-// PUT /api/machines/:id (Para actualizar una máquina específica)
 router.put('/:id', updateMachine);
-
-// DELETE /api/machines/:id (Para ELIMINAR una máquina) <-- ¡Arreglado!
 router.delete('/:id', deleteMachine);
+
+// 3. LA NUEVA RUTA PARA EL CANDADO
 router.put('/:id/settings', updateMachineSettings);
+
 module.exports = router;
