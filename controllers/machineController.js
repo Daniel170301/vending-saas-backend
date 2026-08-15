@@ -339,10 +339,29 @@ const deleteMachine = async (req, res) => {
         client.release();
     }
 };
+// === 5. FUNCIÓN PARA ACTUALIZAR ESTADO (HABILITAR/DESHABILITAR) ===
+const updateMachineSettings = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pago_al_dia } = req.body; 
+        
+        // Solo actualizamos el estado del candado en la base de datos
+        await pool.query(
+            'UPDATE maquinas SET pago_al_dia = $1 WHERE machine_id = $2',
+            [pago_al_dia, id]
+        );
+        
+        res.json({ success: true, message: 'Estado de la máquina guardado correctamente' });
+    } catch (error) {
+        console.error('Error guardando ajustes:', error);
+        res.status(500).json({ success: false, message: 'Error en BD' });
+    }
+};
 // Recuerda exportarla al final del archivo:
 module.exports = {
     getMachines,
     updateMachine,
     createMachine,
-    deleteMachine
+    deleteMachine,
+    updateMachineSettings
 };

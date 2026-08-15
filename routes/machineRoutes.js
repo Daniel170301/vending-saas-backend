@@ -16,5 +16,5 @@ router.put('/:id', updateMachine);
 
 // DELETE /api/machines/:id (Para ELIMINAR una máquina) <-- ¡Arreglado!
 router.delete('/:id', deleteMachine);
-
+router.put('/:id/settings', updateMachineSettings);
 module.exports = router;
