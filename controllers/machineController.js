@@ -308,10 +308,41 @@ const createMachine = async (req, res) => {
     res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
   }
 };
+// === 4. FUNCIÓN PARA ELIMINAR MÁQUINA ===
+const deleteMachine = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        
+        await client.query('BEGIN');
+        
+        // 1. Borramos el historial y el inventario para no dejar datos huérfanos
+        await client.query('DELETE FROM historial_ventas WHERE machine_id = $1', [id]);
+        await client.query('DELETE FROM inventario WHERE machine_id = $1', [id]);
+        
+        // 2. Borramos la máquina principal
+        const result = await client.query('DELETE FROM maquinas WHERE machine_id = $1 RETURNING *', [id]);
+        
+        if (result.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Máquina no encontrada' });
+        }
 
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Máquina eliminada con éxito' });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error eliminando la máquina:', error);
+        res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
+    } finally {
+        client.release();
+    }
+};
 // Recuerda exportarla al final del archivo:
 module.exports = {
     getMachines,
     updateMachine,
-    createMachine
+    createMachine,
+    deleteMachine
 };

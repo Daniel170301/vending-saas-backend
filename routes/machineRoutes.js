@@ -12,5 +12,5 @@ router.post('/', createMachine);
 // 2. Agregamos la ruta PUT (Para actualizar una máquina específica)
 // Esta ruta será accesible en: PUT /api/machines/:id
 router.put('/:id', updateMachine);
-
+router.delete('/:id', machineController.deleteMachine);
 module.exports = router;
