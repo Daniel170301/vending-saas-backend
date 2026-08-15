@@ -1,18 +1,27 @@
 // controllers/machineController.js
 const pool = require('../config/database');
-const mqttService = require('../services/mqttService'); // <-- AÑADE ESTA LÍNEA
+const mqttService = require('../services/mqttService'); 
+
+// === 1. FUNCIÓN GET MACHINES (ACTUALIZADA CON MODO DIOS) ===
 const getMachines = async (req, res) => {
     try {
         const usuarioSolicitante = req.query.user;
 
         if (!usuarioSolicitante || usuarioSolicitante === 'desconocido') {
-            return res.json([]); // Si no hay usuario, devolvemos un arreglo vacío
+            return res.json([]); 
         }
 
         console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
 
-        // Consulta SQL con el JOIN seguro para relacionar el ID numérico con el email de Supabase
-        const query = `
+        // Averiguamos el rol del usuario que está consultando
+        const userRes = await pool.query('SELECT rol FROM usuarios_duenos WHERE email = $1', [usuarioSolicitante]);
+        const userRol = userRes.rows.length > 0 ? userRes.rows[0].rol : 'dueno';
+
+        let query = '';
+        let queryParams = [];
+
+        // Base de la consulta: Mantenemos TODAS tus columnas e incluimos owner_email y owner_name para el Frontend
+        const baseQuery = `
             SELECT 
                 m.machine_id AS id,
                 COALESCE(m.name, m.machine_id) AS name, 
@@ -21,29 +30,34 @@ const getMachines = async (req, res) => {
                 m.numero_celular AS phone,
                 'online' AS status,
                 
-                -- === TUS NUEVOS CANDADOS SAAS ===
+                -- Tus candados SAAS
                 m.pago_al_dia,
                 m.macrodroid_activo,
                 
-                -- Agregamos TODAS las columnas nuevas que necesita React
-                m.brand,
-                m.model,
-                m.plate,
-                m.coin_base,
-                m.coin_current,
-                m.coin_brand,
-                m.coin_plate,
-                m.bill_enabled,
-                m.bill_brand,
-                m.bill_model,
-                m.bill_plate,
-                m.layout
+                -- Columnas de React
+                m.brand, m.model, m.plate, m.coin_base, m.coin_current,
+                m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
+                m.bill_model, m.bill_plate, m.layout,
+                
+                -- Datos para el MODO SOPORTE (La insignia de Lovable)
+                u.email AS owner_email,
+                u.nombre AS owner_name
+                
             FROM maquinas m
-            JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
-            WHERE u.email = $1;
+            LEFT JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
         `;
 
-        const resultado = await pool.query(query, [usuarioSolicitante]);
+        // Aplicamos la lógica según el rol
+        if (userRol === 'superadmin') {
+            // MODO DIOS: Trae TODAS las máquinas
+            query = baseQuery + ' ORDER BY u.email, m.name;';
+        } else {
+            // MODO CLIENTE: Trae solo sus máquinas
+            query = baseQuery + ' WHERE u.email = $1;';
+            queryParams = [usuarioSolicitante];
+        }
+
+        const resultado = await pool.query(query, queryParams);
 
         // Devolvemos el arreglo de máquinas al frontend
         res.json(resultado.rows);
@@ -52,6 +66,8 @@ const getMachines = async (req, res) => {
         res.status(500).json({ success: false, message: "Error del servidor" });
     }
 };
+
+// === 2. FUNCIÓN UPDATE MACHINE (TU CÓDIGO INTACTO Y SEGURO) ===
 const updateMachine = async (req, res) => {
     const client = await pool.connect();
     try {
@@ -114,20 +130,19 @@ const updateMachine = async (req, res) => {
         const result = await client.query(updateQuery, values);
 
         // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
-        // Leemos el layout seguro ya parseado perfectamente
         let layoutArray = JSON.parse(layoutSeguro);
         if (typeof layout === 'string') {
             try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
         }
 
-if (layoutArray && Array.isArray(layoutArray)) {
+        if (layoutArray && Array.isArray(layoutArray)) {
             let motoresEnEditor = [];
             layoutArray.forEach(bandeja => {
                 if (bandeja.springs && Array.isArray(bandeja.springs)) {
                     bandeja.springs.forEach(resorte => {
                         const codigo = String(resorte.id || resorte.code || resorte.motor || '');
                         
-                        // 🔥 MEJORA 1: Extraemos solo el número. Si Lovable envía "cap 15", esto extrae el 15.
+                        // 🔥 MEJORA 1: Extraemos solo el número.
                         let rawCapacidad = resorte.capacity || resorte.capacidad || 10;
                         const capacidad = parseInt(String(rawCapacidad).replace(/\D/g, '')) || 10;
 
@@ -143,10 +158,9 @@ if (layoutArray && Array.isArray(layoutArray)) {
                 const invRes = await client.query('SELECT codigo_motor FROM inventario WHERE machine_id = $1', [targetId]);
                 const motoresEnDB = invRes.rows.map(row => row.codigo_motor);
 
-                // IMPORTANTE: Aseguramos que los filtros tengan el símbolo "!" para detectar las diferencias
-const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
-const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
-const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
+                const motoresParaEliminar = motoresEnDB.filter(motor => !codigosEditor.includes(motor));
+                const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
+                const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
 
                 // B) Eliminamos resortes antiguos
                 if (motoresParaEliminar.length > 0) {
@@ -166,7 +180,7 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
                     }
                 }
 
-                // D) 🔥 MEJORA 2: Actualizamos capacidad (Sintaxis SQL arreglada)
+                // D) 🔥 MEJORA 2: Actualizamos capacidad
                 if (motoresParaActualizar.length > 0) {
                     for (let resorte of motoresParaActualizar) {
                         await client.query(
@@ -178,13 +192,10 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
             }
         }
         
-        // Finalizamos la transacción de Base de Datos
         await client.query('COMMIT');
         
-
-// <-- 2. AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO ->
+        // <-- AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO ->
         try {
-            // ¡CORRECCIÓN AQUÍ! Usamos layoutArray en vez de layout
             if (layoutArray && Array.isArray(layoutArray)) {
                 const topic = `jaimez/expendedora/${targetId}/comandos`; 
                 
@@ -192,7 +203,6 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
                     if (bandeja.springs && Array.isArray(bandeja.springs)) {
                         for (const resorte of bandeja.springs) {
                             
-                            // Hacemos la búsqueda del motor súper robusta, igual que en tu código superior
                             const codigoMotor = String(resorte.codigo_motor || resorte.code || resorte.motor || resorte.id || '');
                             const precioDelMotor = resorte.precio || resorte.sale_price; 
                             
@@ -210,8 +220,6 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
         } catch (mqttError) {
             console.error('Error enviando comandos MQTT a la máquina:', mqttError);
         }
-        // <-- AQUI TERMINA LO NUEVO -->
-
 
         res.json({ 
             success: true, 
@@ -222,14 +230,13 @@ const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m
     } catch (error) {
         await client.query('ROLLBACK'); 
         console.error('Error en la sincronización de la máquina:', error);
-        
-        // ¡EL TRUCO! Le mandamos a tu celular el texto real del error de la base de datos
         res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     } finally {
         client.release();
     }
 };
 
+// === 3. FUNCIÓN CREATE MACHINE (TU CÓDIGO INTACTO Y SEGURO) ===
 const createMachine = async (req, res) => {
   try {
     const { name, code, location, brand, model, bill_plate, layout, user_email } = req.body;
@@ -248,7 +255,7 @@ const createMachine = async (req, res) => {
     const machine_id = code || `TEMP_${Date.now()}`;
     const safeCode = code || machine_id;
 
-    // 🔥 BLINDAJE ABSOLUTO DEL JSON (Igual que en tu updateMachine) 🔥
+    // 🔥 BLINDAJE ABSOLUTO DEL JSON 🔥
     let layoutSeguro = '[]';
     if (layout) {
       if (typeof layout === 'string') {
@@ -281,7 +288,7 @@ const createMachine = async (req, res) => {
       brand || '',
       model || '',
       bill_plate || '',
-      layoutSeguro // <-- AQUÍ ENVIAMOS EL JSON 100% PROTEGIDO
+      layoutSeguro
     ];
     
     const result = await pool.query(insertQuery, values);
@@ -301,9 +308,10 @@ const createMachine = async (req, res) => {
     res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
   }
 };
+
 // Recuerda exportarla al final del archivo:
 module.exports = {
     getMachines,
-    updateMachine, // <-- Agrega esto
+    updateMachine,
     createMachine
 };
