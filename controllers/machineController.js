@@ -25,7 +25,7 @@ const getMachines = async (req, res) => {
             SELECT 
                 m.machine_id AS id,
                 m.id_dueno,
-                m.id_cliente_punto, -- El nuevo campo
+                m.id_cliente_punto,
                 COALESCE(m.name, m.machine_id) AS name, 
                 COALESCE(m.code, m.machine_id) AS code,
                 COALESCE(m.location, m.ubicacion) AS location,
@@ -37,7 +37,15 @@ const getMachines = async (req, res) => {
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
                 m.bill_model, m.bill_plate, m.layout,
                 
-                -- Datos del operador (La etiqueta naranja)
+                -- NUEVOS CAMPOS AGREGADOS AQUÍ:
+                m.distrito, 
+                m.ciudad, 
+                m.referencia, 
+                m.matricula, 
+                m.costo_maquina, 
+                m.anos_depreciar,
+                
+                -- Datos del operador
                 u.email AS owner_email,
                 u.nombre AS owner_name,
                 
