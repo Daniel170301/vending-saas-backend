@@ -24,28 +24,29 @@ const getMachines = async (req, res) => {
         const baseQuery = `
             SELECT 
                 m.machine_id AS id,
-                m.id_dueno, /* <-- ¡ESTA ES LA LÍNEA QUE FALTABA! */
+                m.id_dueno,
+                m.id_cliente_punto, -- El nuevo campo
                 COALESCE(m.name, m.machine_id) AS name, 
                 COALESCE(m.code, m.machine_id) AS code,
                 COALESCE(m.location, m.ubicacion) AS location,
                 m.numero_celular AS phone,
                 'online' AS status,
-                
-                -- Tus candados SAAS
                 m.pago_al_dia,
                 m.macrodroid_activo,
-                
-                -- Columnas de React
                 m.brand, m.model, m.plate, m.coin_base, m.coin_current,
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
                 m.bill_model, m.bill_plate, m.layout,
                 
-                -- Datos para el MODO SOPORTE 
+                -- Datos del operador (La etiqueta naranja)
                 u.email AS owner_email,
-                u.nombre AS owner_name
+                u.nombre AS owner_name,
+                
+                -- Datos del cliente asignado
+                c.razon_social AS nombre_cliente
                 
             FROM maquinas m
             LEFT JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
+            LEFT JOIN empresas_clientes c ON m.id_cliente_punto = c.id_usuario
         `;
 
         // Aplicamos la lógica según el rol
@@ -73,7 +74,7 @@ const updateMachine = async (req, res) => {
     const client = await pool.connect();
     try {
         const { id } = req.params;
-        const { name, code, location, brand, model, bill_plate, layout, id_dueno } = req.body;
+       const { name, code, location, brand, model, bill_plate, layout, id_cliente_punto } = req.body;
         // 🔥 BLINDAJE ABSOLUTO DEL JSON: Limpiamos y aseguramos el formato para PostgreSQL
         let layoutSeguro = '[]';
         if (layout) {
@@ -120,12 +121,11 @@ const updateMachine = async (req, res) => {
         // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
         const updateQuery = `
             UPDATE maquinas 
-            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7, id_dueno = $8 
+            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7, id_cliente_punto = $8 
             WHERE machine_id = $9 
             RETURNING *
         `;
-        // 🔥 Usamos layoutSeguro en lugar de la variable cruda Y AGREGAMOS id_dueno
-        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, id_dueno, targetId];
+        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, id_cliente_punto || null, targetId];
         const result = await client.query(updateQuery, values);
 
         // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
