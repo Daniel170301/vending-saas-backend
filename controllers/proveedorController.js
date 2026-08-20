@@ -102,8 +102,46 @@ const deleteProveedor = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error en BD al eliminar: ' + error.message });
     }
 };
+// === ACTUALIZAR PROVEEDOR ===
+const updateProveedor = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            nombre_o_razon_social, empresa_tienda, tipo_documento,
+            numero_documento, telefono, correo_electronico, direccion, notas
+        } = req.body;
+
+        const query = `
+            UPDATE proveedores 
+            SET nombre_o_razon_social = $1, empresa_tienda = $2, tipo_documento = $3, 
+                numero_documento = $4, telefono = $5, correo_electronico = $6, 
+                direccion = $7, notas = $8
+            WHERE id = $9
+            RETURNING *;
+        `;
+
+        const values = [
+            nombre_o_razon_social, empresa_tienda || '', tipo_documento || 'DNI',
+            numero_documento || '', telefono || '', correo_electronico || '',
+            direccion || '', notas || '', id
+        ];
+
+        const result = await pool.query(query, values);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Proveedor no encontrado' });
+        }
+
+        res.json({ success: true, message: 'Proveedor actualizado con éxito', data: result.rows[0] });
+
+    } catch (error) {
+        console.error('Error al actualizar proveedor:', error);
+        res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
+    }
+};
 module.exports = {
-    getProveedores,
+  getProveedores,
     createProveedor,
-    deleteProveedor
+    deleteProveedor,
+    updateProveedor
 };
