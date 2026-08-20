@@ -9,7 +9,8 @@ const machineRoutes = require('./routes/machineRoutes');
 const yapeRoutes = require('./routes/yapeRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const warehouseRoutes = require('./routes/warehouseRoutes');
-
+const clientRoutes = require('./routes/clientRoutes');
+const expenseRoutes = require('./routes/expenseRoutes');
 const app = express(); //[cite: 4]
 
 // Middlewares
@@ -23,6 +24,8 @@ app.use('/api/machines', machineRoutes);
 app.use('/api/webhook/yape', yapeRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/productos-almacen', warehouseRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/gastos', expenseRoutes);
 // Ruta base de prueba[cite: 4]
 app.get('/', (req, res) => {
   res.send('Servidor SaaS de Máquinas Expendedoras 100% Operativo (Arquitectura Modular)'); //[cite: 4]
