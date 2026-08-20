@@ -74,7 +74,10 @@ const updateMachine = async (req, res) => {
     const client = await pool.connect();
     try {
         const { id } = req.params;
-       const { name, code, location, brand, model, bill_plate, layout, id_cliente_punto } = req.body;
+       const { 
+            name, code, location, brand, model, bill_plate, layout, 
+            id_cliente_punto, distrito, ciudad, referencia, matricula, costo_maquina, anos_depreciar 
+        } = req.body;
         // 🔥 BLINDAJE ABSOLUTO DEL JSON: Limpiamos y aseguramos el formato para PostgreSQL
         let layoutSeguro = '[]';
         if (layout) {
@@ -119,13 +122,21 @@ const updateMachine = async (req, res) => {
 
         const targetId = code || id;
         // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
-        const updateQuery = `
+       const updateQuery = `
             UPDATE maquinas 
-            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7, id_cliente_punto = $8 
-            WHERE machine_id = $9 
+            SET name = $1, code = $2, location = $3, brand = $4, model = $5, 
+                bill_plate = $6, layout = $7, id_cliente_punto = $8,
+                distrito = $9, ciudad = $10, referencia = $11, 
+                matricula = $12, costo_maquina = $13, anos_depreciar = $14
+            WHERE machine_id = $15 
             RETURNING *
         `;
-        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, id_cliente_punto || null, targetId];
+       const values = [
+            name, code, location, brand, model, bill_plate, layoutSeguro, 
+            id_cliente_punto || null, distrito || '', ciudad || '', 
+            referencia || '', matricula || '', costo_maquina || 0, 
+            anos_depreciar || 5, targetId
+        ];
         const result = await client.query(updateQuery, values);
 
         // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
