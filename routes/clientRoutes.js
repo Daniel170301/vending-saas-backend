@@ -2,8 +2,8 @@
 const express = require('express');
 const router = express.Router();
 
-// Importamos SOLO las 3 funciones que existen ahora en el controlador
-const { createClient, getClients, updateClientStatus } = require('../controllers/clientController');
+// Importamos las 4 funciones del controlador (agregamos deleteClient)
+const { createClient, getClients, updateClientStatus, deleteClient } = require('../controllers/clientController');
 
 // 1. Rutas principales de la tabla y formulario
 router.get('/', getClients); 
@@ -11,5 +11,8 @@ router.post('/', createClient);
 
 // 2. Ruta para el Switch (Habilitar/Deshabilitar)
 router.put('/:id/status', updateClientStatus); 
+
+// 3. Ruta para eliminar un cliente (NUEVA)
+router.delete('/:id', deleteClient); 
 
 module.exports = router;

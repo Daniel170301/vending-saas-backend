@@ -25,14 +25,18 @@ let query = `
  `;
  let values = [];
 
- // 2. Aplicar la lógica del Modo Dios
- if (userRol === 'superadmin') {
-   console.log(`[MODO DIOS] Superadmin accediendo a todo el almacén global.`);
-   // No agregamos filtro WHERE, devolvemos todo el catálogo de la app
- } else if (user_id) {
-   query += ` WHERE (u.email::text = $1 OR p.id_dueno::text = $1 OR p.id_dueno IS NULL)`;
-   values.push(String(user_id));
- }
+// 2. Aplicar la lógica de filtrado estricto por usuario
+    if (userRol === 'superadmin') {
+        console.log(`Superadmin accediendo a todo el almacén global.`);
+        // El superadmin no lleva WHERE, ve todo
+    } else if (user_id) {
+        // CAMBIO AQUÍ: Quitamos el "OR p.id_dueno IS NULL" para que solo vea lo suyo
+        query += ` WHERE (u.email::text = $1 OR p.id_dueno::text = $1)`;
+        values.push(String(user_id));
+    } else {
+        // Si no hay usuario identificado, no devolvemos nada por seguridad
+        query += ` WHERE 1 = 0`; 
+    }
 
  query += ' ORDER BY p.id DESC';
  const result = await pool.query(query, values);

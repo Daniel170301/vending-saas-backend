@@ -11,6 +11,7 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const warehouseRoutes = require('./routes/warehouseRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
+const proveedorRoutes = require('./routes/proveedorRoutes');
 const app = express(); //[cite: 4]
 
 // Middlewares
@@ -26,6 +27,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/productos-almacen', warehouseRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/gastos', expenseRoutes);
+app.use('/api/proveedores', proveedorRoutes);
 // Ruta base de prueba[cite: 4]
 app.get('/', (req, res) => {
   res.send('Servidor SaaS de Máquinas Expendedoras 100% Operativo (Arquitectura Modular)'); //[cite: 4]

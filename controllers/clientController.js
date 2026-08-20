@@ -95,9 +95,33 @@ const updateClientStatus = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error en BD' });
     }
 };
+// === ELIMINAR CLIENTE ===
+const deleteClient = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`🗑️ Intentando eliminar cliente con ID: ${id}`);
+        
+        // Usamos empresas_clientes porque es la tabla que creaste en DBeaver
+        const result = await pool.query(
+            'DELETE FROM empresas_clientes WHERE id = $1 RETURNING *',
+            [id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+        }
+
+        res.json({ success: true, message: 'Cliente eliminado con éxito' });
+    } catch (error) {
+        console.error('Error al eliminar cliente:', error);
+        res.status(500).json({ success: false, message: 'Error en BD al eliminar: ' + error.message });
+    }
+};
 
 module.exports = {
     createClient,
     getClients,
-    updateClientStatus
+    updateClientStatus,
+    deleteClient // <-- Cambiado a inglés para que coincida con tus rutas
 };
