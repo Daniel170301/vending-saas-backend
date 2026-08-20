@@ -1,50 +1,69 @@
 // controllers/clientController.js
 const pool = require('../config/database');
 
-// 1. Obtener lista de Usuarios (Dueños) para el selector del formulario
-const getUsers = async (req, res) => {
-    try {
-        const result = await pool.query("SELECT id, nombre, email FROM usuarios_duenos WHERE rol != 'superadmin' ORDER BY nombre ASC");
-        res.json({ success: true, usuarios: result.rows });
-    } catch (error) {
-        console.error('Error al obtener usuarios:', error);
-        res.status(500).json({ success: false, message: 'Error en BD' });
-    }
-};
-
-// 2. Crear un nuevo Cliente (Negocio) amarrado a un Usuario
+// 1. Crear Cliente (Crea el Usuario y el Negocio al mismo tiempo)
 const createClient = async (req, res) => {
+    const client = await pool.connect();
     try {
         const { 
-            id_usuario, razon_social, nombre_comercial, tipo_documento, 
-            numero_documento, telefono, email_contacto, direccion, notas 
+            nombre_razon_social, 
+            empresa_tienda, 
+            tipo_documento, 
+            numero_documento, 
+            telefono, 
+            correo_electronico, 
+            direccion, 
+            notas 
         } = req.body;
 
-        if (!id_usuario || !razon_social) {
-            return res.status(400).json({ success: false, message: 'El usuario y la razón social son obligatorios' });
+        if (!nombre_razon_social || !correo_electronico) {
+            return res.status(400).json({ success: false, message: 'El nombre y el correo son obligatorios' });
         }
 
-        const query = `
+        await client.query('BEGIN');
+
+        // A. Buscamos si el correo ya existe en usuarios_duenos
+        let id_usuario;
+        const checkUser = await client.query('SELECT id FROM usuarios_duenos WHERE email = $1', [correo_electronico]);
+        
+        if (checkUser.rows.length > 0) {
+            // Si el correo ya existe, reciclamos ese ID para asignarle este nuevo negocio
+            id_usuario = checkUser.rows[0].id; 
+        } else {
+            // Si no existe, creamos la cuenta de acceso nueva
+            const defaultPassword = numero_documento || 'QhaPay2026'; // Contraseña por defecto
+            const newUser = await client.query(`
+                INSERT INTO usuarios_duenos (nombre, email, password, rol) 
+                VALUES ($1, $2, $3, 'cliente') 
+                RETURNING id;
+            `, [nombre_razon_social, correo_electronico, defaultPassword]);
+            
+            id_usuario = newUser.rows[0].id;
+        }
+
+        // B. Creamos el Negocio en empresas_clientes y lo enlazamos al id_usuario
+        const newBusiness = await client.query(`
             INSERT INTO empresas_clientes 
             (id_usuario, razon_social, nombre_comercial, tipo_documento, numero_documento, telefono, email_contacto, direccion, notas) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
             RETURNING *;
-        `;
-        const values = [id_usuario, razon_social, nombre_comercial, tipo_documento, numero_documento, telefono, email_contacto, direccion, notas];
-        
-        const result = await pool.query(query, values);
-        res.json({ success: true, message: 'Negocio creado con éxito', cliente: result.rows[0] });
+        `, [id_usuario, nombre_razon_social, empresa_tienda, tipo_documento, numero_documento, telefono, correo_electronico, direccion, notas]);
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Cliente registrado con éxito', cliente: newBusiness.rows[0] });
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Error creando cliente:', error);
         res.status(500).json({ success: false, message: 'Error interno en BD' });
+    } finally {
+        client.release();
     }
 };
 
-// 3. Obtener todos los Negocios para mostrar en la Tabla
+// 2. Obtener todos los Negocios para la Tabla
 const getClients = async (req, res) => {
     try {
-        // Hacemos un JOIN para que la tabla muestre el correo del dueño principal
         const query = `
             SELECT c.*, u.email as email_dueno, u.nombre as nombre_dueno
             FROM empresas_clientes c
@@ -59,7 +78,7 @@ const getClients = async (req, res) => {
     }
 };
 
-// 4. Cambiar el estado del Negocio (Habilitado/Suspendido)
+// 3. Cambiar el estado del Negocio (Habilitado/Suspendido)
 const updateClientStatus = async (req, res) => {
     try {
         const { id } = req.params; 
@@ -78,7 +97,6 @@ const updateClientStatus = async (req, res) => {
 };
 
 module.exports = {
-    getUsers,
     createClient,
     getClients,
     updateClientStatus
