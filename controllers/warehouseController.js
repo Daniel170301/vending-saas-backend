@@ -54,25 +54,35 @@ let query = `
 const crearProductoAlmacen = async (req, res) => {
  try {
  const {
- name, category, subcategory, unit_cost,
- sale_price, stock_warehouse, capacidad, unit_type,
- id_dueno,
- barcode, image_url, min_stock 
- } = req.body;
+            name, category, subcategory, unit_cost,
+            sale_price, stock_warehouse, capacidad, unit_type,
+            id_dueno, user_email, // Añadimos user_email por si el frontend lo manda así
+            barcode, image_url, min_stock 
+        } = req.body;
+
+        let finalIdDueno = id_dueno;
+
+        // Si nos pasan el correo en lugar del ID numérico, lo buscamos
+        if (!finalIdDueno && user_email) {
+            const userRes = await pool.query('SELECT id FROM usuarios_duenos WHERE email = $1', [user_email]);
+            if (userRes.rows.length > 0) {
+                finalIdDueno = userRes.rows[0].id;
+            }
+        }
  const query = `
- INSERT INTO productos_almacen
- (name, category, subcategory, unit_cost, sale_price,
- stock_warehouse, capacidad, unit_type, id_dueno, barcode, image_url, min_stock)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
- RETURNING *;
- `;
+            INSERT INTO productos_almacen
+            (name, category, subcategory, unit_cost, sale_price,
+            stock_warehouse, capacidad, unit_type, id_dueno, barcode, image_url, min_stock)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING *;
+        `;
  
- const values = [
- name, category || null, subcategory || null,
- unit_cost || 0, sale_price || 0, stock_warehouse || 0,
- capacidad || 10, unit_type || 'unidad', id_dueno || null,
- barcode || null, image_url || null, min_stock || 0 
- ];
+const values = [
+            name, category || null, subcategory || null,
+            unit_cost || 0, sale_price || 0, stock_warehouse || 0,
+            capacidad || 10, unit_type || 'unidad', finalIdDueno || null,
+            barcode || null, image_url || null, min_stock || 0 
+        ];
  const result = await pool.query(query, values);
  res.json({
    success: true,
