@@ -66,7 +66,22 @@ const registerPurchase = async (req, res) => {
         client.release();
     }
 };
-
+// Obtener la lista de gastos para mostrar en la pantalla
+const getExpenses = async (req, res) => {
+    try {
+        const query = `
+            SELECT id, concepto, proveedor, metodo_pago, total, fecha 
+            FROM transacciones_gastos 
+            ORDER BY fecha DESC;
+        `;
+        const result = await pool.query(query);
+        res.json({ success: true, gastos: result.rows, data: result.rows });
+    } catch (error) {
+        console.error('Error al obtener gastos:', error);
+        res.status(500).json({ success: false, message: 'Error en BD' });
+    }
+};
 module.exports = {
-    registerPurchase
+    registerPurchase,
+    getExpenses 
 };
