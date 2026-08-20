@@ -20,10 +20,11 @@ const getMachines = async (req, res) => {
         let query = '';
         let queryParams = [];
 
-        // Base de la consulta: Mantenemos TODAS tus columnas e incluimos owner_email y owner_name para el Frontend
+      // Base de la consulta: Mantenemos TODAS tus columnas e incluimos id_dueno
         const baseQuery = `
             SELECT 
                 m.machine_id AS id,
+                m.id_dueno, /* <-- ¡ESTA ES LA LÍNEA QUE FALTABA! */
                 COALESCE(m.name, m.machine_id) AS name, 
                 COALESCE(m.code, m.machine_id) AS code,
                 COALESCE(m.location, m.ubicacion) AS location,
@@ -39,7 +40,7 @@ const getMachines = async (req, res) => {
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
                 m.bill_model, m.bill_plate, m.layout,
                 
-                -- Datos para el MODO SOPORTE (La insignia de Lovable)
+                -- Datos para el MODO SOPORTE 
                 u.email AS owner_email,
                 u.nombre AS owner_name
                 
@@ -72,8 +73,7 @@ const updateMachine = async (req, res) => {
     const client = await pool.connect();
     try {
         const { id } = req.params;
-        const { name, code, location, brand, model, bill_plate, layout } = req.body;
-
+        const { name, code, location, brand, model, bill_plate, layout, id_dueno } = req.body;
         // 🔥 BLINDAJE ABSOLUTO DEL JSON: Limpiamos y aseguramos el formato para PostgreSQL
         let layoutSeguro = '[]';
         if (layout) {
@@ -117,16 +117,15 @@ const updateMachine = async (req, res) => {
         }
 
         const targetId = code || id;
-
         // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
         const updateQuery = `
             UPDATE maquinas 
-            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7 
-            WHERE machine_id = $8 
+            SET name = $1, code = $2, location = $3, brand = $4, model = $5, bill_plate = $6, layout = $7, id_dueno = $8 
+            WHERE machine_id = $9 
             RETURNING *
         `;
-        // 🔥 Usamos layoutSeguro en lugar de la variable cruda
-        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, targetId];
+        // 🔥 Usamos layoutSeguro en lugar de la variable cruda Y AGREGAMOS id_dueno
+        const values = [name, code, location, brand, model, bill_plate, layoutSeguro, id_dueno, targetId];
         const result = await client.query(updateQuery, values);
 
         // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
