@@ -63,7 +63,7 @@ const registerPurchase = async (req, res) => {
                     UPDATE productos_almacen 
                     SET stock_warehouse = $1, unit_cost = $2
                     WHERE id = $3
-                `, [nuevoStock, nuevoCostoPromedio.toFixed(2), productoId]);
+                `, [nuevoStock, nuevoCostoPromedio.toFixed(4), productoId]);
             }
         }
 
