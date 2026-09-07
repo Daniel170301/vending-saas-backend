@@ -1,7 +1,8 @@
 // controllers/expenseController.js
 const pool = require('../config/database');
 
-// 1. REGISTRAR COMPRA (Mejorado con Costo Promedio Ponderado)
+
+// 1. REGISTRAR COMPRA (A prueba de balas)
 const registerPurchase = async (req, res) => {
     const client = await pool.connect();
     try {
@@ -13,7 +14,7 @@ const registerPurchase = async (req, res) => {
 
         await client.query('BEGIN');
 
-        const concepto = `Compra de mercadería - ${tipo_comprobante} ${numero_documento || 'Sin N°'}`;
+        const concepto = `Compra de mercadería - ${tipo_comprobante || 'Boleta'} ${numero_documento || 'Sin N°'}`;
         const gastoResult = await client.query(`
             INSERT INTO transacciones_gastos (id_dueno, concepto, proveedor, metodo_pago, total, fecha) 
             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;
@@ -22,35 +23,48 @@ const registerPurchase = async (req, res) => {
         const id_transaccion = gastoResult.rows[0].id;
 
         for (let prod of productos) {
-            // A. Guardamos el detalle
+            // A. Flexibilidad total: Capturamos el dato sin importar cómo lo nombre Lovable
+            const productoId = prod.id_producto || prod.producto_id || prod.id;
+            const cantidadComprada = parseInt(prod.cantidad || prod.quantity) || 0;
+            const costoCompra = parseFloat(prod.costo_compra || prod.costo_unitario || prod.precio) || 0;
+            const subtotalCompra = parseFloat(prod.subtotal || prod.total) || (cantidadComprada * costoCompra);
+
+            // Filtro de seguridad: Si no hay ID o la cantidad es 0, lo saltamos para no dañar el stock
+            if (!productoId || cantidadComprada === 0) {
+                console.log("Producto ignorado por datos incompletos:", prod);
+                continue; 
+            }
+
+            // B. Guardamos el detalle
             await client.query(`
                 INSERT INTO compras_detalle (id_transaccion, id_producto, cantidad, costo_unitario, total)
                 VALUES ($1, $2, $3, $4, $5)
-            `, [id_transaccion, prod.id_producto, prod.cantidad, prod.costo_compra, prod.subtotal]);
+            `, [id_transaccion, productoId, cantidadComprada, costoCompra, subtotalCompra]);
 
-            // B. Traemos stock y costo actual para hacer la matemática
-            const prodData = await client.query('SELECT stock_warehouse, unit_cost FROM productos_almacen WHERE id = $1', [prod.id_producto]);
-            const stockActual = parseInt(prodData.rows[0].stock_warehouse) || 0;
-            const costoActual = parseFloat(prodData.rows[0].unit_cost) || 0;
-            const cantidadComprada = parseInt(prod.cantidad) || 0;
-            const costoCompra = parseFloat(prod.costo_compra) || 0;
+            // C. Traemos stock y costo actual para hacer la matemática
+            const prodData = await client.query('SELECT stock_warehouse, unit_cost FROM productos_almacen WHERE id = $1', [productoId]);
+            
+            if (prodData.rows.length > 0) {
+                const stockActual = parseInt(prodData.rows[0].stock_warehouse) || 0;
+                const costoActual = parseFloat(prodData.rows[0].unit_cost) || 0;
 
-            const nuevoStock = stockActual + cantidadComprada;
-            let nuevoCostoPromedio = costoActual;
+                const nuevoStock = stockActual + cantidadComprada;
+                let nuevoCostoPromedio = costoActual;
 
-            // C. La Magia: Costo Promedio Ponderado
-            if (nuevoStock > 0) {
-                const valorInventarioActual = stockActual * costoActual;
-                const valorNuevoLote = cantidadComprada * costoCompra;
-                nuevoCostoPromedio = (valorInventarioActual + valorNuevoLote) / nuevoStock;
+                // D. Costo Promedio Ponderado
+                if (nuevoStock > 0) {
+                    const valorInventarioActual = stockActual * costoActual;
+                    const valorNuevoLote = cantidadComprada * costoCompra;
+                    nuevoCostoPromedio = (valorInventarioActual + valorNuevoLote) / nuevoStock;
+                }
+
+                // E. Actualizamos almacén con stock sumado y precio promediado
+                await client.query(`
+                    UPDATE productos_almacen 
+                    SET stock_warehouse = $1, unit_cost = $2
+                    WHERE id = $3
+                `, [nuevoStock, nuevoCostoPromedio.toFixed(2), productoId]);
             }
-
-            // D. Actualizamos almacén con stock sumado y precio promediado
-            await client.query(`
-                UPDATE productos_almacen 
-                SET stock_warehouse = $1, unit_cost = $2
-                WHERE id = $3
-            `, [nuevoStock, nuevoCostoPromedio.toFixed(2), prod.id_producto]);
         }
 
         await client.query('COMMIT');
