@@ -6,7 +6,7 @@ const pool = require('../config/database');
 const registerPurchase = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { id_usuario, proveedor, tipo_comprobante, numero_documento, fecha_compra, total, productos } = req.body;
+        const { id_usuario, proveedor, tipo_comprobante, numero_documento, fecha_compra, total, productos, imagen_comprobante } = req.body;
 
         if (!id_usuario || !productos || productos.length === 0) {
             return res.status(400).json({ success: false, message: 'Faltan datos o productos en la compra' });
@@ -15,10 +15,12 @@ const registerPurchase = async (req, res) => {
         await client.query('BEGIN');
 
         const concepto = `Compra de mercadería - ${tipo_comprobante || 'Boleta'} ${numero_documento || 'Sin N°'}`;
+        
+        // LA CORRECCIÓN ESTÁ AQUÍ: Se añade imagen_comprobante en el INSERT y el parámetro $7
         const gastoResult = await client.query(`
-            INSERT INTO transacciones_gastos (id_dueno, concepto, proveedor, metodo_pago, total, fecha) 
-            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;
-        `, [id_usuario, concepto, proveedor, 'Efectivo', total, fecha_compra || new Date()]);
+            INSERT INTO transacciones_gastos (id_dueno, concepto, proveedor, metodo_pago, total, fecha, imagen_comprobante) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id;
+        `, [id_usuario, concepto, proveedor, 'Efectivo', total, fecha_compra || new Date(), imagen_comprobante]);
         
         const id_transaccion = gastoResult.rows[0].id;
 
@@ -58,7 +60,7 @@ const registerPurchase = async (req, res) => {
                     nuevoCostoPromedio = (valorInventarioActual + valorNuevoLote) / nuevoStock;
                 }
 
-                // E. Actualizamos almacén con stock sumado y precio promediado
+                // E. Actualizamos almacén con stock sumado y precio promediado a 4 decimales
                 await client.query(`
                     UPDATE productos_almacen 
                     SET stock_warehouse = $1, unit_cost = $2
@@ -93,7 +95,7 @@ const getExpenses = async (req, res) => {
         }
 
         let query = `
-            SELECT t.id, t.concepto, t.proveedor, t.metodo_pago, t.total, t.fecha 
+            SELECT t.id, t.concepto, t.proveedor, t.metodo_pago, t.total, t.fecha, t.imagen_comprobante 
             FROM transacciones_gastos t
             LEFT JOIN usuarios_duenos u ON t.id_dueno::text = u.id::text
         `;
