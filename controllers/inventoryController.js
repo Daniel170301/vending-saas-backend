@@ -17,22 +17,27 @@ const obtenerInventario = async (req, res) => {
     }
 
     try {
-        const query = `
+       const query = `
             SELECT 
-                id,
-                machine_id,
-                codigo_motor,
-                codigo_motor AS slot,
-                nombre_producto,
-                nombre_producto AS product_name,
-                nombre_producto AS name,
-                precio,
-                precio AS price,
-                stock,
-                capacidad,
-                capacidad AS capacity
-            FROM inventario 
-            WHERE machine_id = $1;
+                i.id,
+                i.machine_id,
+                i.codigo_motor,
+                i.codigo_motor AS slot,
+                i.nombre_producto,
+                i.nombre_producto AS product_name,
+                i.nombre_producto AS name,
+                i.precio,
+                i.precio AS price,
+                i.stock,
+                i.capacidad,
+                i.capacidad AS capacity,
+                pa.image_url
+            FROM inventario i
+            LEFT JOIN maquinas m ON i.machine_id = m.machine_id
+            LEFT JOIN productos_almacen pa 
+                ON i.nombre_producto = pa.name 
+                AND m.id_dueno::text = pa.id_dueno::text
+            WHERE i.machine_id = $1;
         `;
 
         const result = await pool.query(query, [machine_id]);
