@@ -1,14 +1,22 @@
-// routes/expenseRoutes.js
 const express = require('express');
 const router = express.Router();
 
-// AQUÍ ESTÁ EL CAMBIO: Agregamos getExpenses dentro de las llaves
-const { registerPurchase, getExpenses } = require('../controllers/expenseController');
+// Importamos TODAS las funciones que creamos en el controlador
+const { 
+    registerPurchase, 
+    getExpenses, 
+    getExpenseDetails, 
+    deleteExpense, 
+    updateExpense 
+} = require('../controllers/expenseController');
 
-// Ruta para obtener la lista
+// Rutas originales
 router.get('/', getExpenses);
-
-// Ruta para guardar una nueva compra de mercadería
 router.post('/purchase', registerPurchase);
+
+// NUEVAS RUTAS para el modal (Detalle, Eliminar, Editar)
+router.get('/:id/detalle', getExpenseDetails);
+router.delete('/:id', deleteExpense);
+router.put('/:id', updateExpense);
 
 module.exports = router;
