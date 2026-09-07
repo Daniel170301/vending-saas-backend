@@ -69,13 +69,42 @@ const registerPurchase = async (req, res) => {
 // Obtener la lista de gastos para mostrar en la pantalla
 const getExpenses = async (req, res) => {
     try {
-        const query = `
-            SELECT id, concepto, proveedor, metodo_pago, total, fecha 
-            FROM transacciones_gastos 
-            ORDER BY fecha DESC;
+        // Capturamos el identificador del usuario que hace la petición
+        const user_id = req.query.user_id || req.query.user || req.query.email;
+        
+        let userRol = 'dueno';
+        if (user_id) {
+            const userRes = await pool.query('SELECT rol FROM usuarios_duenos WHERE email = $1', [user_id]);
+            if (userRes.rows.length > 0) {
+                userRol = userRes.rows[0].rol;
+            }
+        }
+
+        // Hacemos un JOIN para poder filtrar por el correo del dueño
+        let query = `
+            SELECT t.id, t.concepto, t.proveedor, t.metodo_pago, t.total, t.fecha 
+            FROM transacciones_gastos t
+            LEFT JOIN usuarios_duenos u ON t.id_dueno::text = u.id::text
         `;
-        const result = await pool.query(query);
+        let values = [];
+
+        // Filtramos según el rol
+        if (userRol === 'superadmin') {
+            // El superadmin ve los gastos de todos
+        } else if (user_id) {
+            // Un cliente normal solo ve sus propios gastos
+            query += ` WHERE u.email::text = $1 OR t.id_dueno::text = $1`;
+            values.push(String(user_id));
+        } else {
+            // Candado de seguridad si no hay usuario logueado
+            query += ` WHERE 1 = 0`; 
+        }
+
+        query += ` ORDER BY t.fecha DESC;`;
+        
+        const result = await pool.query(query, values);
         res.json({ success: true, gastos: result.rows, data: result.rows });
+        
     } catch (error) {
         console.error('Error al obtener gastos:', error);
         res.status(500).json({ success: false, message: 'Error en BD' });
