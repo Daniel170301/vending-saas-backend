@@ -152,7 +152,7 @@ const editarProductoAlmacen = async (req, res) => {
 
             for (let maq of maquinasAfectadas.rows) {
                 const topic = `jaimez/expendedora/${maq.machine_id}/comandos`;
-                const comandoMQTT = `EDITAR:${maq.codigo_motor}:${precioFormateado}`;
+                const comandoMQTT = `EDITAR:${maq.codigo_motor} ${precioFormateado}`;
                 mqttService.publicarMensaje(topic, comandoMQTT);
                 console.log(`📡 Enviando a ESP32 (${maq.machine_id}): ${comandoMQTT}`);
             }
