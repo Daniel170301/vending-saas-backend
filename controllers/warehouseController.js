@@ -100,69 +100,77 @@ const values = [
 };
 
 const editarProductoAlmacen = async (req, res) => {
- try {
- const { id } = req.params;
- const {
- name, category, subcategory, unit_cost,
- sale_price, stock_warehouse, capacidad, unit_type,
- barcode, image_url, min_stock
- } = req.body;
- const query = `
- UPDATE productos_almacen
- SET name = $1, category = $2, subcategory = $3, unit_cost = $4,
-     sale_price = $5, stock_warehouse = $6, capacidad = $7, unit_type = $8,
-     barcode = $9, image_url = $10, min_stock = $11
- WHERE id = $12
- RETURNING *;
- `;
- 
- const values = [
- name, category || null, subcategory || null,
- unit_cost || 0, sale_price || 0, stock_warehouse || 0,
- capacidad || 10, unit_type || 'unidad',
- barcode || null, image_url || null, min_stock || 0,
- id
- ];
- const result = await pool.query(query, values);
- if (result.rows.length === 0) {
- return res.status(404).json({ success: false, message: 'Producto no encontrado' });
- } 
+    try {
+        const { id } = req.params;
 
- try {
- const precioFormateado = parseFloat(sale_price || 0).toFixed(2);
- 
- await pool.query(
- 'UPDATE inventario SET precio = $1 WHERE nombre_producto = $2',
- [precioFormateado, name]
- );
- console.log(`Precios sincronizados en BD a S/ ${precioFormateado} para el producto: ${name}`);
+        // 1. ESCUDO: Buscamos qué datos tiene el producto actualmente en la BD
+        const resultCurrent = await pool.query('SELECT * FROM productos_almacen WHERE id = $1', [id]);
+        if (resultCurrent.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Producto no encontrado' });
+        }
+        const prodActual = resultCurrent.rows[0];
 
- const maquinasAfectadas = await pool.query(
- 'SELECT machine_id, codigo_motor FROM inventario WHERE nombre_producto = $1',
- [name]
- );
+        // 2. FUSIÓN: Si Lovable envía un dato, lo usamos. Si "olvida" enviarlo, usamos el que ya existía (evita el error NULL)
+        const name = req.body.name !== undefined ? req.body.name : prodActual.name;
+        const category = req.body.category !== undefined ? req.body.category : prodActual.category;
+        const subcategory = req.body.subcategory !== undefined ? req.body.subcategory : prodActual.subcategory;
+        const unit_cost = req.body.unit_cost !== undefined ? req.body.unit_cost : prodActual.unit_cost;
+        const sale_price = req.body.sale_price !== undefined ? req.body.sale_price : prodActual.sale_price;
+        const stock_warehouse = req.body.stock_warehouse !== undefined ? req.body.stock_warehouse : prodActual.stock_warehouse;
+        const capacidad = req.body.capacidad !== undefined ? req.body.capacidad : prodActual.capacidad;
+        const unit_type = req.body.unit_type !== undefined ? req.body.unit_type : prodActual.unit_type;
+        const barcode = req.body.barcode !== undefined ? req.body.barcode : prodActual.barcode;
+        const image_url = req.body.image_url !== undefined ? req.body.image_url : prodActual.image_url;
+        const min_stock = req.body.min_stock !== undefined ? req.body.min_stock : prodActual.min_stock;
 
- for (let maq of maquinasAfectadas.rows) {
- const topic = `jaimez/expendedora/${maq.machine_id}/comandos`;
- const comandoMQTT = `EDITAR:${maq.codigo_motor}:${precioFormateado}`;
- mqttService.publicarMensaje(topic, comandoMQTT);
- console.log(`📡 Enviando a ESP32 (${maq.machine_id}): ${comandoMQTT}`);
- }
- } catch (syncError) {
- console.error('Error sincronizando el precio con las máquinas:', syncError);  
- }
+        // 3. GUARDADO SEGURO: Actualizamos el Almacén General
+        const query = `
+            UPDATE productos_almacen
+            SET name = $1, category = $2, subcategory = $3, unit_cost = $4,
+                sale_price = $5, stock_warehouse = $6, capacidad = $7, unit_type = $8,
+                barcode = $9, image_url = $10, min_stock = $11
+            WHERE id = $12
+            RETURNING *;
+        `;
+        const values = [name, category, subcategory, unit_cost, sale_price, stock_warehouse, capacidad, unit_type, barcode, image_url, min_stock, id];
+        const result = await pool.query(query, values);
 
- res.json({
-   success: true,
-   producto: result.rows[0],
-   message: 'Producto actualizado y sincronizado en todas las máquinas'
- });
- } catch (error) {
- console.error('Error al actualizar el producto:', error);
- res.status(500).json({ success: false, message: 'Error al actualizar en la base de datos' });
- }
+        // 4. TU CÓDIGO INTACTO: Sincronización de inventario y MQTT a los ESP32
+        try {
+            const precioFormateado = parseFloat(sale_price || 0).toFixed(2);
+            
+            await pool.query(
+                'UPDATE inventario SET precio = $1 WHERE nombre_producto = $2',
+                [precioFormateado, name] // Usamos el nombre fusionado seguro
+            );
+            console.log(`Precios sincronizados en BD a S/ ${precioFormateado} para el producto: ${name}`);
+
+            const maquinasAfectadas = await pool.query(
+                'SELECT machine_id, codigo_motor FROM inventario WHERE nombre_producto = $1',
+                [name]
+            );
+
+            for (let maq of maquinasAfectadas.rows) {
+                const topic = `jaimez/expendedora/${maq.machine_id}/comandos`;
+                const comandoMQTT = `EDITAR:${maq.codigo_motor}:${precioFormateado}`;
+                mqttService.publicarMensaje(topic, comandoMQTT);
+                console.log(`📡 Enviando a ESP32 (${maq.machine_id}): ${comandoMQTT}`);
+            }
+        } catch (syncError) {
+            console.error('Error sincronizando el precio con las máquinas:', syncError);  
+        }
+
+        res.json({
+            success: true,
+            producto: result.rows[0],
+            message: 'Producto actualizado y sincronizado en todas las máquinas'
+        });
+
+    } catch (error) {
+        console.error('Error al actualizar el producto:', error);
+        res.status(500).json({ success: false, message: 'Error al actualizar en la base de datos' });
+    }
 };
-
 const actualizarStock = async (req, res) => {
  try {
  const { id } = req.params;
