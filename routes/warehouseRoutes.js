@@ -17,5 +17,6 @@ router.delete('/:id', warehouseController.eliminarProductoAlmacen);
 
 // Ruta PUT para actualizar (descontar) exclusivamente el stock
 router.put('/:id/stock', warehouseController.actualizarStock);
-
+// Ruta POST para sincronizar todos los precios del planograma con la máquina ESP32
+router.post('/machines/:machine_id/sincronizar-precios', warehouseController.sincronizarPreciosMaquina);
 module.exports = router;

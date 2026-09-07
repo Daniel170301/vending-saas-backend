@@ -218,11 +218,50 @@ const eliminarProductoAlmacen = async (req, res) => {
  res.status(500).json({ success: false, message: 'Error al eliminar en el servidor' });
  }
 };
+const sincronizarPreciosMaquina = async (req, res) => {
+    try {
+        const { machine_id } = req.params;
 
+        // 1. Buscamos todos los productos asignados a los motores de esta máquina específica
+        const query = `
+            SELECT codigo_motor, precio, nombre_producto 
+            FROM inventario 
+            WHERE machine_id = $1
+        `;
+        const result = await pool.query(query, [machine_id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'No se encontraron productos para esta máquina' });
+        }
+
+        // 2. Recorremos cada motor y disparamos su comando MQTT correspondiente
+        const topic = `jaimez/expendedora/${machine_id}/comandos`;
+        let sincronizados = 0;
+
+        for (let item of result.rows) {
+            const precioFormateado = parseFloat(item.precio || 0).toFixed(2);
+            const comandoMQTT = `EDITAR:${item.codigo_motor} ${precioFormateado}`;
+            
+            mqttService.publicarMensaje(topic, comandoMQTT);
+            console.log(`📡 Sincronización masiva -> ${comandoMQTT}`);
+            sincronizados++;
+        }
+
+        res.json({
+            success: true,
+            message: `Se sincronizaron ${sincronizados} motores correctamente para la máquina ${machine_id}`
+        });
+
+    } catch (error) {
+        console.error('Error en el barrido de sincronización:', error);
+        res.status(500).json({ success: false, message: 'Error interno al sincronizar la máquina' });
+    }
+};
 module.exports = {
  obtenerAlmacen,
  crearProductoAlmacen,
  editarProductoAlmacen,
  actualizarStock,
- eliminarProductoAlmacen
+ eliminarProductoAlmacen,
+ sincronizarPreciosMaquina
 };
