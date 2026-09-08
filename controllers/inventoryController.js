@@ -100,8 +100,8 @@ const actualizarInventario = async (req, res) => {
             const costoUnitario = costoRes.rows.length > 0 ? parseFloat(costoRes.rows[0].unit_cost) : 0;
             
             // Extraer nombre de la máquina
-            const maqRes = await client.query('SELECT nombre FROM maquinas WHERE machine_id = $1', [machine_id]);
-            const nombreMaquina = maqRes.rows.length > 0 ? maqRes.rows[0].nombre : 'Máquina Desconocida';
+            const maqRes = await client.query('SELECT name FROM maquinas WHERE machine_id = $1', [machine_id]);
+            const nombreMaquina = maqRes.rows.length > 0 ? maqRes.rows[0].name : 'Máquina Desconocida';
 
             // Insertar en la bitácora
             await client.query(`
