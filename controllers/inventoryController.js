@@ -266,7 +266,7 @@ const obtenerHistorialAbastecimiento = async (req, res) => {
     }
 };
 
-// 7. ELIMINAR HISTORIAL Y REVERTIR STOCK EN LA MÁQUINA
+// 7. ELIMINAR HISTORIAL, REVERTIR STOCK Y DEVOLVER AL ALMACÉN
 const eliminarHistorialAbastecimiento = async (req, res) => {
     const client = await pool.connect();
     try {
@@ -283,19 +283,27 @@ const eliminarHistorialAbastecimiento = async (req, res) => {
 
         const registro = histRes.rows[0];
 
-        // 2. Revertir el stock en la máquina (restar la cantidad que se había agregado)
-        // Usamos GREATEST para asegurar que el stock nunca baje de cero por error
+        // 2. Revertir el stock en la máquina (restar la cantidad agregada)
         await client.query(`
             UPDATE inventario 
             SET stock = GREATEST(stock - $1, 0)
             WHERE machine_id = $2 AND codigo_motor = $3
         `, [registro.cantidad_agregada, registro.machine_id, registro.codigo_motor]);
 
-        // 3. Eliminar el registro de la bitácora
+        // 3. NUEVO: Devolver esa misma cantidad al Almacén General
+        if (registro.nombre_producto) {
+            await client.query(`
+                UPDATE productos_almacen 
+                SET stock_warehouse = stock_warehouse + $1
+                WHERE name = $2
+            `, [registro.cantidad_agregada, registro.nombre_producto]);
+        }
+
+        // 4. Eliminar el registro de la bitácora
         await client.query('DELETE FROM historial_abastecimiento WHERE id = $1', [id]);
 
         await client.query('COMMIT'); // Guardamos los cambios
-        res.json({ success: true, message: 'Abastecimiento revertido correctamente' });
+        res.json({ success: true, message: 'Abastecimiento revertido y productos devueltos al almacén' });
 
     } catch (error) {
         await client.query('ROLLBACK'); // Deshacemos todo si hay error
