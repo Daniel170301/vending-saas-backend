@@ -8,8 +8,8 @@ const {
     actualizarInventario, 
     registrarVenta,
     deleteSpring,
-    quitarStockYDevolverAlmacen,
-    obtenerHistorialAbastecimiento // <-- 1. AGREGAMOS LA NUEVA FUNCIÓN AQUÍ
+  obtenerHistorialAbastecimiento,
+    eliminarHistorialAbastecimiento // <-- Impórtala aquí
 } = require('../controllers/inventoryController');
 
 // 1. OBTENER inventario por MAC
@@ -31,5 +31,7 @@ router.delete('/:machine_id/:codigo_motor', deleteSpring);
 
 // 6. HISTORIAL DE ABASTECIMIENTO (NUEVA RUTA) <-- 2. CREAMOS SU RUTA AQUÍ
 router.get('/:machine_id/abastecimiento', obtenerHistorialAbastecimiento);
+// 7. ELIMINAR Y REVERTIR UN ABASTECIMIENTO
+router.delete('/abastecimiento/:id', eliminarHistorialAbastecimiento);
 
 module.exports = router;

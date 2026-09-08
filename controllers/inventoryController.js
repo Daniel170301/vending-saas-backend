@@ -265,11 +265,52 @@ const obtenerHistorialAbastecimiento = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error en el servidor al cargar historial' });
     }
 };
+
+// 7. ELIMINAR HISTORIAL Y REVERTIR STOCK EN LA MÁQUINA
+const eliminarHistorialAbastecimiento = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); // Iniciamos transacción segura
+        const { id } = req.params;
+
+        // 1. Obtener los detalles del abastecimiento antes de borrarlo
+        const histRes = await client.query('SELECT * FROM historial_abastecimiento WHERE id = $1', [id]);
+        
+        if (histRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Registro no encontrado' });
+        }
+
+        const registro = histRes.rows[0];
+
+        // 2. Revertir el stock en la máquina (restar la cantidad que se había agregado)
+        // Usamos GREATEST para asegurar que el stock nunca baje de cero por error
+        await client.query(`
+            UPDATE inventario 
+            SET stock = GREATEST(stock - $1, 0)
+            WHERE machine_id = $2 AND codigo_motor = $3
+        `, [registro.cantidad_agregada, registro.machine_id, registro.codigo_motor]);
+
+        // 3. Eliminar el registro de la bitácora
+        await client.query('DELETE FROM historial_abastecimiento WHERE id = $1', [id]);
+
+        await client.query('COMMIT'); // Guardamos los cambios
+        res.json({ success: true, message: 'Abastecimiento revertido correctamente' });
+
+    } catch (error) {
+        await client.query('ROLLBACK'); // Deshacemos todo si hay error
+        console.error("Error al revertir historial:", error);
+        res.status(500).json({ success: false, message: 'Error interno al revertir el abastecimiento' });
+    } finally {
+        client.release();
+    }
+};
 module.exports = {
     obtenerInventario,
     actualizarInventario,
     registrarVenta,
     deleteSpring,
     quitarStockYDevolverAlmacen,
-    obtenerHistorialAbastecimiento
+    obtenerHistorialAbastecimiento,
+    eliminarHistorialAbastecimiento
 };
