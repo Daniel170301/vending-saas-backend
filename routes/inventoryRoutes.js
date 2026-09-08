@@ -8,24 +8,28 @@ const {
     actualizarInventario, 
     registrarVenta,
     deleteSpring,
-    quitarStockYDevolverAlmacen // <-- 1. LO AGREGAMOS AQUÍ
+    quitarStockYDevolverAlmacen,
+    obtenerHistorialAbastecimiento // <-- 1. AGREGAMOS LA NUEVA FUNCIÓN AQUÍ
 } = require('../controllers/inventoryController');
 
 // 1. OBTENER inventario por MAC
 router.get('/:machine_id', obtenerInventario); 
 
 // 2. GUARDAR / ACTUALIZAR RESORTE (Cubrimos POST y PUT en todas sus variantes)
-router.post('/', actualizarInventario);          // Por si Lovable manda POST a /api/inventario
-router.post('/actualizar', actualizarInventario); // Por si manda POST a /api/inventario/actualizar
-router.put('/actualizar', actualizarInventario);  // El PUT original que ya tenías
+router.post('/', actualizarInventario);          
+router.post('/actualizar', actualizarInventario); 
+router.put('/actualizar', actualizarInventario);  
 
 // 3. REGISTRAR venta
 router.post('/vender', registrarVenta);
 
 // 4. QUITAR STOCK
-router.post('/quitar-stock', quitarStockYDevolverAlmacen); // <-- 2. QUITAMOS "inventoryController." AQUÍ
+router.post('/quitar-stock', quitarStockYDevolverAlmacen); 
 
 // 5. ELIMINAR un resorte específico
 router.delete('/:machine_id/:codigo_motor', deleteSpring);
+
+// 6. HISTORIAL DE ABASTECIMIENTO (NUEVA RUTA) <-- 2. CREAMOS SU RUTA AQUÍ
+router.get('/:machine_id/abastecimiento', obtenerHistorialAbastecimiento);
 
 module.exports = router;

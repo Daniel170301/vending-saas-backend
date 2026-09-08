@@ -52,47 +52,78 @@ const obtenerInventario = async (req, res) => {
     }
 };
 
-// 2. ACTUALIZAR INVENTARIO (O CREAR RESORTE NUEVO)
+// 2. ACTUALIZAR INVENTARIO E HISTORIAL DE ABASTECIMIENTO
 const actualizarInventario = async (req, res) => {
+    const client = await pool.connect();
     try {
-        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad } = req.body;
-        const precioFormateado = parseFloat(precio).toFixed(2);
-        const capacidadFinal = capacidad ? parseInt(capacidad) : 10;
+        await client.query('BEGIN'); // Iniciamos transacción segura
 
-        // 1. Guardamos o actualizamos el resorte específico
-        const motorExiste = await pool.query(
-            'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
+        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, user_email } = req.body;
+        const precioFormateado = parseFloat(precio || 0).toFixed(2);
+        const capacidadFinal = capacidad ? parseInt(capacidad) : 10;
+        const nuevoStockTotal = parseInt(stock) || 0;
+
+        // 1. Buscamos el estado actual del resorte para calcular cuánto estamos agregando
+        const motorActual = await client.query(
+            'SELECT stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
             [machine_id, codigo_motor]
         );
+        
+        const cantidadAnterior = motorActual.rows.length > 0 ? parseInt(motorActual.rows[0].stock) : 0;
+        const cantidadAgregada = nuevoStockTotal - cantidadAnterior;
 
-        if (motorExiste.rows.length === 0) {
-            await pool.query(
+        // 2. Guardamos o actualizamos en el inventario principal
+        if (motorActual.rows.length === 0) {
+            await client.query(
                 'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock, capacidad) VALUES ($1, $2, $3, $4, $5, $6)',
-                [machine_id, codigo_motor, nombre_producto, precioFormateado, stock, capacidadFinal]
+                [machine_id, codigo_motor, nombre_producto, precioFormateado, nuevoStockTotal, capacidadFinal]
             );
         } else {
-            await pool.query(
+            await client.query(
                 'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3, capacidad = $4 WHERE machine_id = $5 AND codigo_motor = $6',
-                [nombre_producto, precioFormateado, stock, capacidadFinal, machine_id, codigo_motor]
+                [nombre_producto, precioFormateado, nuevoStockTotal, capacidadFinal, machine_id, codigo_motor]
             );
         }
 
-        // 2. SINCRONIZACIÓN SEGURA: Actualiza el precio en otros resortes, pero SÓLO DENTRO DE ESTA MAC
+        // 3. SINCRONIZACIÓN SEGURA: Actualiza precio en otros resortes de esta MAC
         if (nombre_producto && nombre_producto.trim() !== "") {
-            await pool.query(
+            await client.query(
                 'UPDATE inventario SET precio = $1 WHERE machine_id = $2 AND nombre_producto = $3',
                 [precioFormateado, machine_id, nombre_producto]
             );
         }
 
-        // 3. Enviamos el precio formateado al servicio MQTT
+        // 4. REGISTRAR HISTORIAL (SÓLO SI SE AGREGÓ MERCADERÍA)
+        if (cantidadAgregada > 0 && nombre_producto) {
+            // Extraer Costo Unitario de la tabla de almacén
+            const costoRes = await client.query('SELECT unit_cost FROM productos_almacen WHERE name = $1 LIMIT 1', [nombre_producto]);
+            const costoUnitario = costoRes.rows.length > 0 ? parseFloat(costoRes.rows[0].unit_cost) : 0;
+            
+            // Extraer nombre de la máquina
+            const maqRes = await client.query('SELECT nombre FROM maquinas WHERE machine_id = $1', [machine_id]);
+            const nombreMaquina = maqRes.rows.length > 0 ? maqRes.rows[0].nombre : 'Máquina Desconocida';
+
+            // Insertar en la bitácora
+            await client.query(`
+                INSERT INTO historial_abastecimiento 
+                (machine_id, nombre_maquina, codigo_motor, nombre_producto, cantidad_anterior, cantidad_agregada, cantidad_total, costo_unitario, responsable_email)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [machine_id, nombreMaquina, codigo_motor, nombre_producto, cantidadAnterior, cantidadAgregada, nuevoStockTotal, costoUnitario, user_email || 'Administrador']);
+        }
+
+        await client.query('COMMIT'); // Guardamos todo permanentemente
+
+        // 5. Enviamos comando MQTT al ESP32
         mqttService.enviarComandoPrecio(machine_id, codigo_motor, precioFormateado);
 
-        // MUY IMPORTANTE: Mandamos los datos actualizados para que React los pueda leer y renderizar
-        res.json({ success: true, message: 'Producto guardado y precios sincronizados en esta máquina' });
+        res.json({ success: true, message: 'Producto guardado, historial registrado y precios sincronizados' });
+
     } catch (error) {
-        console.error("Error en DB:", error);
-        res.status(500).json({ success: false, message: 'Error guardando inventario' });
+        await client.query('ROLLBACK'); // Si algo falla, deshacemos todo
+        console.error("Error en DB al actualizar inventario:", error);
+        res.status(500).json({ success: false, message: 'Error guardando inventario e historial' });
+    } finally {
+        client.release();
     }
 };
 
@@ -217,10 +248,28 @@ const quitarStockYDevolverAlmacen = async (req, res) => {
         client.release(); // Liberamos la conexión
     }
 };
+// 6. OBTENER HISTORIAL DE ABASTECIMIENTO POR MÁQUINA
+const obtenerHistorialAbastecimiento = async (req, res) => {
+    try {
+        const { machine_id } = req.params;
+        const query = `
+            SELECT * FROM historial_abastecimiento 
+            WHERE machine_id = $1 
+            ORDER BY fecha DESC
+        `;
+        const result = await pool.query(query, [machine_id]);
+        
+        res.json({ success: true, historial: result.rows });
+    } catch (error) {
+        console.error('Error al obtener historial:', error);
+        res.status(500).json({ success: false, message: 'Error en el servidor al cargar historial' });
+    }
+};
 module.exports = {
     obtenerInventario,
     actualizarInventario,
     registrarVenta,
     deleteSpring,
-    quitarStockYDevolverAlmacen // <-- Ahora sí la exportamos correctamente
+    quitarStockYDevolverAlmacen,
+    obtenerHistorialAbastecimiento
 };
