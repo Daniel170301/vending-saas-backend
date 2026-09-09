@@ -189,11 +189,104 @@ const updateExpense = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error al editar' });
     }
 };
+// 6. NUEVO: ELIMINAR UN SOLO PRODUCTO DEL GASTO (FILA)
+const eliminarDetalleGasto = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { id_transaccion, id_detalle } = req.params;
 
+        const detRes = await client.query('SELECT id_producto, cantidad, total FROM compras_detalle WHERE id = $1', [id_detalle]);
+        if (detRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Fila no encontrada' });
+        }
+        const detalle = detRes.rows[0];
+
+        await client.query(`
+            UPDATE productos_almacen 
+            SET stock_warehouse = GREATEST(stock_warehouse - $1, 0) 
+            WHERE id = $2
+        `, [detalle.cantidad, detalle.id_producto]);
+
+        await client.query(`
+            UPDATE transacciones_gastos 
+            SET total = GREATEST(total - $1, 0) 
+            WHERE id = $2
+        `, [detalle.total, id_transaccion]);
+
+        await client.query('DELETE FROM compras_detalle WHERE id = $1', [id_detalle]);
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Producto removido de la boleta y stock actualizado' });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error eliminando fila del gasto:', error);
+        res.status(500).json({ success: false, message: 'Error al eliminar el producto del gasto' });
+    } finally {
+        client.release();
+    }
+};
+
+// 7. NUEVO: AGREGAR UN PRODUCTO A UN GASTO EXISTENTE
+const agregarDetalleGasto = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { id_transaccion } = req.params;
+        const { id_producto, cantidad, costo_unitario } = req.body;
+        const subtotal = parseInt(cantidad) * parseFloat(costo_unitario);
+
+        await client.query(`
+            INSERT INTO compras_detalle (id_transaccion, id_producto, cantidad, costo_unitario, total)
+            VALUES ($1, $2, $3, $4, $5)
+        `, [id_transaccion, id_producto, cantidad, costo_unitario, subtotal]);
+
+        const prodData = await client.query('SELECT stock_warehouse, unit_cost FROM productos_almacen WHERE id = $1', [id_producto]);
+        
+        if (prodData.rows.length > 0) {
+            const stockActual = parseInt(prodData.rows[0].stock_warehouse) || 0;
+            const costoActual = parseFloat(prodData.rows[0].unit_cost) || 0;
+            const nuevoStock = stockActual + parseInt(cantidad);
+            let nuevoCostoPromedio = costoActual;
+            
+            if (nuevoStock > 0) {
+                const valorInventario = stockActual * costoActual;
+                const valorNuevoLote = subtotal;
+                nuevoCostoPromedio = (valorInventario + valorNuevoLote) / nuevoStock;
+            }
+
+            await client.query(`
+                UPDATE productos_almacen 
+                SET stock_warehouse = $1, unit_cost = $2
+                WHERE id = $3
+            `, [nuevoStock, nuevoCostoPromedio.toFixed(4), id_producto]);
+        }
+
+        await client.query(`
+            UPDATE transacciones_gastos 
+            SET total = total + $1 
+            WHERE id = $2
+        `, [subtotal, id_transaccion]);
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Producto agregado exitosamente a la boleta' });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error agregando fila al gasto:', error);
+        res.status(500).json({ success: false, message: 'Error al agregar el producto' });
+    } finally {
+        client.release();
+    }
+};
 module.exports = {
     registerPurchase,
     getExpenses,
     getExpenseDetails,
     deleteExpense,
-    updateExpense
+    updateExpense,
+    eliminarDetalleGasto,
+    agregarDetalleGasto
 };
