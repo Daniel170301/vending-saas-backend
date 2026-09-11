@@ -31,7 +31,8 @@ const obtenerInventario = async (req, res) => {
                 i.stock,
                 i.capacidad,
                 i.capacidad AS capacity,
-                pa.image_url
+                pa.image_url,
+                pa.unit_cost AS costo_unitario
             FROM inventario i
             LEFT JOIN maquinas m ON i.machine_id = m.machine_id
             LEFT JOIN productos_almacen pa 
