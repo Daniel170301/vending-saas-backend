@@ -2,7 +2,7 @@
 const pool = require('../config/database');
 
 
-// 1. REGISTRAR COMPRA (A prueba de balas)
+// 1. REGISTRAR COMPRA (A prueba de balas y con aislamiento por correo)
 const registerPurchase = async (req, res) => {
     const client = await pool.connect();
     try {
@@ -14,53 +14,61 @@ const registerPurchase = async (req, res) => {
 
         await client.query('BEGIN');
 
+        // --- ESTA ES LA PARTE QUE FALTABA: Convertir el correo al ID real ---
+        let id_dueno_real = id_usuario;
+        // Si lo que llega es un texto con un "@", buscamos su ID en la tabla
+        if (typeof id_usuario === 'string' && id_usuario.includes('@')) {
+            const userRes = await client.query('SELECT id FROM usuarios_duenos WHERE email = $1', [id_usuario]);
+            if (userRes.rows.length > 0) {
+                id_dueno_real = userRes.rows[0].id;
+            } else {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: 'Usuario no registrado' });
+            }
+        }
+        // --------------------------------------------------------------------
+
         const concepto = `Compra de mercadería - ${tipo_comprobante || 'Boleta'} ${numero_documento || 'Sin N°'}`;
         
-        // LA CORRECCIÓN ESTÁ AQUÍ: Se añade imagen_comprobante en el INSERT y el parámetro $7
+        // AQUÍ EL CAMBIO: Usamos id_dueno_real en el parámetro $1 en vez de id_usuario
         const gastoResult = await client.query(`
             INSERT INTO transacciones_gastos (id_dueno, concepto, proveedor, metodo_pago, total, fecha, imagen_comprobante) 
             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id;
-        `, [id_usuario, concepto, proveedor, 'Efectivo', total, fecha_compra || new Date(), imagen_comprobante]);
+        `, [id_dueno_real, concepto, proveedor, 'Efectivo', total, fecha_compra || new Date(), imagen_comprobante]);
         
         const id_transaccion = gastoResult.rows[0].id;
 
+        // --- TODO ESTO SE MANTIENE INTACTO (No se borra tu lógica de inventario) ---
         for (let prod of productos) {
-            // A. Flexibilidad total: Capturamos el dato sin importar cómo lo nombre Lovable
             const productoId = prod.id_producto || prod.producto_id || prod.id;
             const cantidadComprada = parseInt(prod.cantidad || prod.quantity) || 0;
             const costoCompra = parseFloat(prod.costo_compra || prod.costo_unitario || prod.precio) || 0;
             const subtotalCompra = parseFloat(prod.subtotal || prod.total) || (cantidadComprada * costoCompra);
 
-            // Filtro de seguridad: Si no hay ID o la cantidad es 0, lo saltamos para no dañar el stock
             if (!productoId || cantidadComprada === 0) {
                 console.log("Producto ignorado por datos incompletos:", prod);
                 continue; 
             }
 
-            // B. Guardamos el detalle
             await client.query(`
                 INSERT INTO compras_detalle (id_transaccion, id_producto, cantidad, costo_unitario, total)
                 VALUES ($1, $2, $3, $4, $5)
             `, [id_transaccion, productoId, cantidadComprada, costoCompra, subtotalCompra]);
 
-            // C. Traemos stock y costo actual para hacer la matemática
             const prodData = await client.query('SELECT stock_warehouse, unit_cost FROM productos_almacen WHERE id = $1', [productoId]);
             
             if (prodData.rows.length > 0) {
                 const stockActual = parseInt(prodData.rows[0].stock_warehouse) || 0;
                 const costoActual = parseFloat(prodData.rows[0].unit_cost) || 0;
-
                 const nuevoStock = stockActual + cantidadComprada;
                 let nuevoCostoPromedio = costoActual;
 
-                // D. Costo Promedio Ponderado
                 if (nuevoStock > 0) {
                     const valorInventarioActual = stockActual * costoActual;
                     const valorNuevoLote = cantidadComprada * costoCompra;
                     nuevoCostoPromedio = (valorInventarioActual + valorNuevoLote) / nuevoStock;
                 }
 
-                // E. Actualizamos almacén con stock sumado y precio promediado a 4 decimales
                 await client.query(`
                     UPDATE productos_almacen 
                     SET stock_warehouse = $1, unit_cost = $2
