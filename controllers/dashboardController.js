@@ -55,53 +55,58 @@ const getDashboardMetrics = async (req, res) => {
 };
 
 // =========================================================================
-// NUEVO: OBTENER TOP 20 PRODUCTOS MÁS VENDIDOS (General o por máquina)
+// NUEVO: OBTENER TOP 20 PRODUCTOS MÁS VENDIDOS (Con filtro de máquina y fechas)
 // =========================================================================
 const obtenerTopProductos = async (req, res) => {
     try {
         const user_email = req.query.email || req.query.user_id || req.query.user;
         const machine_id = req.query.machine_id; 
+        
+        // 1. Nuevas variables de fecha que enviará Lovable
+        const fecha_inicio = req.query.fecha_inicio;
+        const fecha_fin = req.query.fecha_fin;
 
         if (!user_email) {
             return res.status(400).json({ success: false, message: 'Falta el correo del usuario' });
         }
 
-        let query = "";
-        let values = [];
+        // 2. Construcción dinámica de la condición WHERE
+        let values = [user_email];
+        let whereClause = "WHERE u.email = $1";
+        let paramIndex = 2;
 
         if (machine_id && machine_id !== 'general' && machine_id !== 'Todas') {
-            // Ranking por máquina específica (aislado por dueño)
-            query = `
-                SELECT 
-                    v.nombre_producto, 
-                    COUNT(*) as total_unidades, 
-                    SUM(v.precio) as ingresos
-                FROM historial_ventas v
-                JOIN maquinas m ON v.machine_id = m.machine_id
-                JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
-                WHERE u.email = $1 AND v.machine_id = $2
-                GROUP BY v.nombre_producto
-                ORDER BY total_unidades DESC
-                LIMIT 20;
-            `;
-            values = [user_email, machine_id];
-        } else {
-            // Ranking General de TODAS las máquinas de este dueño
-            query = `
-                SELECT 
-                    v.nombre_producto, 
-                    COUNT(*) as total_unidades, 
-                    SUM(v.precio) as ingresos
-                FROM historial_ventas v
-                JOIN maquinas m ON v.machine_id = m.machine_id
-                JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
-                WHERE u.email = $1
-                GROUP BY v.nombre_producto
-                ORDER BY total_unidades DESC
-                LIMIT 20;
-            `;
-            values = [user_email];
+            whereClause += ` AND v.machine_id = $${paramIndex}`;
+            values.push(machine_id);
+            paramIndex++;
         }
+
+        if (fecha_inicio) {
+            whereClause += ` AND v.fecha >= $${paramIndex}`;
+            values.push(fecha_inicio);
+            paramIndex++;
+        }
+
+        if (fecha_fin) {
+            whereClause += ` AND v.fecha <= $${paramIndex}`;
+            values.push(`${fecha_fin} 23:59:59`); // Asegura cubrir todo el día
+            paramIndex++;
+        }
+
+        // 3. Tu misma consulta, pero inyectando el WHERE dinámico
+        const query = `
+            SELECT 
+                v.nombre_producto, 
+                COUNT(*) as total_unidades, 
+                SUM(v.precio) as ingresos
+            FROM historial_ventas v
+            JOIN maquinas m ON v.machine_id = m.machine_id
+            JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
+            ${whereClause}
+            GROUP BY v.nombre_producto
+            ORDER BY total_unidades DESC
+            LIMIT 20;
+        `;
 
         const { rows } = await pool.query(query, values);
         res.json({ success: true, top_productos: rows });
