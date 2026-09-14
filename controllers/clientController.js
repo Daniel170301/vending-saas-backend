@@ -95,7 +95,54 @@ const updateClientStatus = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error en BD' });
     }
 };
-// === ELIMINAR CLIENTE ===
+
+// 4. === ACTUALIZAR CLIENTE (LA FUNCIÓN QUE TE FALTABA AGREGAR) ===
+const updateClient = async (req, res) => {
+    const { id } = req.params;
+    const { 
+        razon_social, 
+        tipo_documento, 
+        numero_documento, 
+        telefono, 
+        email_contacto, 
+        departamento, 
+        ciudad, 
+        direccion, 
+        notas 
+    } = req.body;
+
+    try {
+        const query = `
+            UPDATE empresas_clientes
+            SET razon_social = COALESCE($1, razon_social),
+                tipo_documento = COALESCE($2, tipo_documento),
+                numero_documento = COALESCE($3, numero_documento),
+                telefono = COALESCE($4, telefono),
+                email_contacto = COALESCE($5, email_contacto),
+                departamento = COALESCE($6, departamento),
+                ciudad = COALESCE($7, ciudad),
+                direccion = COALESCE($8, direccion),
+                notas = COALESCE($9, notas)
+            WHERE id = $10
+            RETURNING *;
+        `;
+        
+        const values = [razon_social, tipo_documento, numero_documento, telefono, email_contacto, departamento, ciudad, direccion, notas, id];
+        
+        const result = await pool.query(query, values);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+        }
+        
+        res.json({ success: true, message: 'Cliente actualizado correctamente', client: result.rows[0] });
+    } catch (error) {
+        console.error('Error actualizando cliente:', error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor al actualizar cliente' });
+    }
+};
+
+// 5. === ELIMINAR CLIENTE ===
 const deleteClient = async (req, res) => {
     try {
         const { id } = req.params;
@@ -123,5 +170,6 @@ module.exports = {
     createClient,
     getClients,
     updateClientStatus,
-    deleteClient // <-- Cambiado a inglés para que coincida con tus rutas
+    updateClient, // <-- YA ESTÁ AGREGADO AQUÍ PARA QUE LA RUTA LO RECONOZCA
+    deleteClient 
 };

@@ -10,20 +10,16 @@ const getProveedores = async (req, res) => {
             return res.json([]); 
         }
 
-        // Verificamos el rol del usuario
         const userRes = await pool.query('SELECT id, rol FROM usuarios_duenos WHERE email = $1', [usuarioSolicitante]);
         if (userRes.rows.length === 0) return res.json([]);
         
         const user = userRes.rows[0];
-
         let query = '';
         let queryParams = [];
 
         if (user.rol === 'superadmin') {
-            // MODO DIOS: Ve todos
             query = `SELECT p.* FROM proveedores p ORDER BY p.id DESC;`;
         } else {
-            // MODO CLIENTE: Ve solo los suyos
             query = `
                 SELECT p.* FROM proveedores p
                 JOIN usuarios_duenos u ON p.id_usuario = u.id
@@ -46,12 +42,12 @@ const createProveedor = async (req, res) => {
     try {
         const {
             nombre_o_razon_social, empresa_tienda, tipo_documento,
-            numero_documento, telefono, correo_electronico, direccion, notas, user_email
+            numero_documento, telefono, correo_electronico, 
+            departamento, ciudad, direccion, notas, user_email // AGREGADOS AQUÍ
         } = req.body;
 
         let id_usuario = null;
 
-        // Buscamos el ID del usuario usando su correo
         if (user_email) {
             const userRes = await pool.query('SELECT id FROM usuarios_duenos WHERE email = $1', [user_email]);
             if (userRes.rows.length > 0) {
@@ -61,15 +57,15 @@ const createProveedor = async (req, res) => {
 
         const query = `
             INSERT INTO proveedores 
-            (nombre_o_razon_social, empresa_tienda, tipo_documento, numero_documento, telefono, correo_electronico, direccion, notas, id_usuario)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            (nombre_o_razon_social, empresa_tienda, tipo_documento, numero_documento, telefono, correo_electronico, departamento, ciudad, direccion, notas, id_usuario)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *;
         `;
 
         const values = [
             nombre_o_razon_social, empresa_tienda || '', tipo_documento || 'DNI',
             numero_documento || '', telefono || '', correo_electronico || '',
-            direccion || '', notas || '', id_usuario
+            departamento || '', ciudad || '', direccion || '', notas || '', id_usuario
         ];
 
         const result = await pool.query(query, values);
@@ -80,17 +76,12 @@ const createProveedor = async (req, res) => {
         res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     }
 };
+
 // === 3. ELIMINAR PROVEEDOR ===
 const deleteProveedor = async (req, res) => {
     try {
         const { id } = req.params;
-        
-        console.log(`🗑️ Intentando eliminar proveedor con ID: ${id}`);
-        
-        const result = await pool.query(
-            'DELETE FROM proveedores WHERE id = $1 RETURNING *',
-            [id]
-        );
+        const result = await pool.query('DELETE FROM proveedores WHERE id = $1 RETURNING *', [id]);
 
         if (result.rowCount === 0) {
             return res.status(404).json({ success: false, message: 'Proveedor no encontrado' });
@@ -102,28 +93,30 @@ const deleteProveedor = async (req, res) => {
         res.status(500).json({ success: false, message: 'Error en BD al eliminar: ' + error.message });
     }
 };
-// === ACTUALIZAR PROVEEDOR ===
+
+// === 4. ACTUALIZAR PROVEEDOR ===
 const updateProveedor = async (req, res) => {
     try {
         const { id } = req.params;
         const {
             nombre_o_razon_social, empresa_tienda, tipo_documento,
-            numero_documento, telefono, correo_electronico, direccion, notas
+            numero_documento, telefono, correo_electronico, 
+            departamento, ciudad, direccion, notas // AGREGADOS AQUÍ
         } = req.body;
 
         const query = `
             UPDATE proveedores 
             SET nombre_o_razon_social = $1, empresa_tienda = $2, tipo_documento = $3, 
                 numero_documento = $4, telefono = $5, correo_electronico = $6, 
-                direccion = $7, notas = $8
-            WHERE id = $9
+                departamento = $7, ciudad = $8, direccion = $9, notas = $10
+            WHERE id = $11
             RETURNING *;
         `;
 
         const values = [
             nombre_o_razon_social, empresa_tienda || '', tipo_documento || 'DNI',
             numero_documento || '', telefono || '', correo_electronico || '',
-            direccion || '', notas || '', id
+            departamento || '', ciudad || '', direccion || '', notas || '', id
         ];
 
         const result = await pool.query(query, values);
@@ -139,8 +132,9 @@ const updateProveedor = async (req, res) => {
         res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     }
 };
+
 module.exports = {
-  getProveedores,
+    getProveedores,
     createProveedor,
     deleteProveedor,
     updateProveedor
