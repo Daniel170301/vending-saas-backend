@@ -12,6 +12,8 @@ const warehouseRoutes = require('./routes/warehouseRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const proveedorRoutes = require('./routes/proveedorRoutes');
+const profileRoutes = require('./routes/profileRoutes'); // NUEVA RUTA INTEGRADA
+
 const app = express(); 
 
 // Middlewares
@@ -33,6 +35,7 @@ app.use('/api/productos-almacen', warehouseRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/gastos', expenseRoutes);
 app.use('/api/proveedores', proveedorRoutes);
+app.use('/api/perfil', profileRoutes); // NUEVO ENDPOINT HABILITADO
 
 // Ruta base de prueba
 app.get('/', (req, res) => {
