@@ -59,7 +59,9 @@ const actualizarInventario = async (req, res) => {
     try {
         await client.query('BEGIN'); // Iniciamos transacción segura
 
-        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, user_email } = req.body;
+        // === 1. CAPTURAMOS EL OPERARIO DEL REQ.BODY ===
+        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, user_email, nombre_operario } = req.body;
+        
         const precioFormateado = parseFloat(precio || 0).toFixed(2);
         const capacidadFinal = capacidad ? parseInt(capacidad) : 10;
         const nuevoStockTotal = parseInt(stock) || 0;
@@ -104,12 +106,23 @@ const actualizarInventario = async (req, res) => {
             const maqRes = await client.query('SELECT name FROM maquinas WHERE machine_id = $1', [machine_id]);
             const nombreMaquina = maqRes.rows.length > 0 ? maqRes.rows[0].name : 'Máquina Desconocida';
 
-            // Insertar en la bitácora
+            // === 2. INCLUIR EL OPERARIO EN EL INSERT ===
             await client.query(`
                 INSERT INTO historial_abastecimiento 
-                (machine_id, nombre_maquina, codigo_motor, nombre_producto, cantidad_anterior, cantidad_agregada, cantidad_total, costo_unitario, responsable_email)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            `, [machine_id, nombreMaquina, codigo_motor, nombre_producto, cantidadAnterior, cantidadAgregada, nuevoStockTotal, costoUnitario, user_email || 'Administrador']);
+                (machine_id, nombre_maquina, codigo_motor, nombre_producto, cantidad_anterior, cantidad_agregada, cantidad_total, costo_unitario, responsable_email, nombre_operario)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            `, [
+                machine_id, 
+                nombreMaquina, 
+                codigo_motor, 
+                nombre_producto, 
+                cantidadAnterior, 
+                cantidadAgregada, 
+                nuevoStockTotal, 
+                costoUnitario, 
+                user_email || 'Administrador',
+                nombre_operario || 'No especificado' // Fallback por seguridad
+            ]);
         }
 
         await client.query('COMMIT'); // Guardamos todo permanentemente
@@ -127,7 +140,6 @@ const actualizarInventario = async (req, res) => {
         client.release();
     }
 };
-
 // 3. REGISTRAR VENTA
 const registrarVenta = async (req, res) => {
     try {
