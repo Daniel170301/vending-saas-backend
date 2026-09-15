@@ -2,7 +2,6 @@
 const express = require('express');
 const router = express.Router();
 
-// Importamos todas las funciones desde el controlador de inventario
 const { 
     obtenerInventario, 
     actualizarInventario, 
@@ -16,7 +15,7 @@ const {
 // 1. OBTENER inventario por MAC
 router.get('/:machine_id', obtenerInventario); 
 
-// 2. GUARDAR / ACTUALIZAR RESORTE (Cubrimos POST y PUT en todas sus variantes)
+// 2. GUARDAR / ACTUALIZAR RESORTE
 router.post('/', actualizarInventario);          
 router.post('/actualizar', actualizarInventario); 
 router.put('/actualizar', actualizarInventario);  
@@ -27,13 +26,17 @@ router.post('/vender', registrarVenta);
 // 4. QUITAR STOCK
 router.post('/quitar-stock', quitarStockYDevolverAlmacen); 
 
-// 5. ELIMINAR un resorte específico
-router.delete('/:machine_id/:codigo_motor', deleteSpring);
+// === RUTAS FIJAS O CON PREFIJOS (DEBEN IR ANTES QUE LAS DINÁMICAS DOBLES) ===
 
 // 6. HISTORIAL DE ABASTECIMIENTO
 router.get('/:machine_id/abastecimiento', obtenerHistorialAbastecimiento);
 
-// 7. ELIMINAR Y REVERTIR UN ABASTECIMIENTO
+// 7. ELIMINAR Y REVERTIR UN ABASTECIMIENTO (¡Ahora sí la leerá correctamente!)
 router.delete('/abastecimiento/:id', eliminarHistorialAbastecimiento);
+
+// === RUTAS ALTAMENTE DINÁMICAS (DEBEN IR AL FINAL) ===
+
+// 5. ELIMINAR un resorte específico
+router.delete('/:machine_id/:codigo_motor', deleteSpring);
 
 module.exports = router;
