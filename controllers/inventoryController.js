@@ -3,8 +3,6 @@ const pool = require('../config/database');
 const mqttService = require('../services/mqttService');
 
 // 1. OBTENER INVENTARIO
-// 1. OBTENER INVENTARIO
-// 1. OBTENER INVENTARIO
 const obtenerInventario = async (req, res) => {
     // Capturamos cualquier variante de parámetro que use tu archivo de rutas
     const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.params.mac || Object.values(req.params)[0] || req.query.machine_id; 
@@ -202,7 +200,6 @@ const deleteSpring = async (req, res) => {
     }
 };
 
-// 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN (VERSIÓN PARCIAL)
 // 5. NUEVO: QUITAR STOCK Y DEVOLVER AL ALMACÉN (VERSIÓN PARCIAL)
 const quitarStockYDevolverAlmacen = async (req, res) => {
     const client = await pool.connect();
