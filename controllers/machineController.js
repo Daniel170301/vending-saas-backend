@@ -13,14 +13,12 @@ const getMachines = async (req, res) => {
 
         console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
 
-        // Averiguamos el rol del usuario que está consultando
         const userRes = await pool.query('SELECT rol FROM usuarios_duenos WHERE email = $1', [usuarioSolicitante]);
         const userRol = userRes.rows.length > 0 ? userRes.rows[0].rol : 'dueno';
 
         let query = '';
         let queryParams = [];
 
-      // Base de la consulta: Mantenemos TODAS tus columnas e incluimos id_dueno
         const baseQuery = `
             SELECT 
                 m.machine_id AS id,
@@ -37,19 +35,17 @@ const getMachines = async (req, res) => {
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
                 m.bill_model, m.bill_plate, m.layout,
                 
-                -- NUEVOS CAMPOS AGREGADOS AQUÍ:
                 m.distrito, 
                 m.ciudad, 
                 m.referencia, 
                 m.matricula, 
                 m.costo_maquina, 
                 m.anos_depreciar,
+                m.dia_depreciacion, -- 🔥 AQUÍ ESTABA EL PROBLEMA DE LECTURA (FRONTEND)
                 
-                -- Datos del operador
                 u.email AS owner_email,
                 u.nombre AS owner_name,
                 
-                -- Datos del cliente asignado
                 c.razon_social AS nombre_cliente
                 
             FROM maquinas m
@@ -57,19 +53,14 @@ const getMachines = async (req, res) => {
             LEFT JOIN empresas_clientes c ON m.id_cliente_punto = c.id_usuario
         `;
 
-        // Aplicamos la lógica según el rol
         if (userRol === 'superadmin') {
-            // MODO DIOS: Trae TODAS las máquinas
             query = baseQuery + ' ORDER BY u.email, m.name;';
         } else {
-            // MODO CLIENTE: Trae solo sus máquinas
             query = baseQuery + ' WHERE u.email = $1;';
             queryParams = [usuarioSolicitante];
         }
 
         const resultado = await pool.query(query, queryParams);
-
-        // Devolvemos el arreglo de máquinas al frontend
         res.json(resultado.rows);
     } catch (error) {
         console.error("Error obteniendo máquinas:", error);
@@ -82,11 +73,12 @@ const updateMachine = async (req, res) => {
     const client = await pool.connect();
     try {
         const { id } = req.params;
+       // 🔥 SE AGREGÓ LA VARIABLE dia_depreciacion AL DESTRUCTURING
        const { 
             name, code, location, brand, model, bill_plate, layout, 
-            id_cliente_punto, distrito, ciudad, referencia, matricula, costo_maquina, anos_depreciar 
+            id_cliente_punto, distrito, ciudad, referencia, matricula, costo_maquina, anos_depreciar, dia_depreciacion 
         } = req.body;
-        // 🔥 BLINDAJE ABSOLUTO DEL JSON: Limpiamos y aseguramos el formato para PostgreSQL
+        
         let layoutSeguro = '[]';
         if (layout) {
             if (typeof layout === 'string') {
@@ -100,9 +92,8 @@ const updateMachine = async (req, res) => {
             }
         }
 
-        await client.query('BEGIN'); // 1. Iniciamos la transacción
+        await client.query('BEGIN'); 
 
-        // === 1. AUTO-REPARACIÓN DE LA BASE DE DATOS ===
         if (code && id !== code) {
             await client.query('UPDATE maquinas SET code = $1 WHERE machine_id = $2', [`temp_${id}`, id]);
             
@@ -129,25 +120,26 @@ const updateMachine = async (req, res) => {
         }
 
         const targetId = code || id;
-        // === 2. ACTUALIZACIÓN DE DATOS (Layout y datos de la máquina) ===
+        
+        // 🔥 SE AGREGÓ dia_depreciacion = $15 A LA CONSULTA SQL
        const updateQuery = `
             UPDATE maquinas 
             SET name = $1, code = $2, location = $3, brand = $4, model = $5, 
                 bill_plate = $6, layout = $7, id_cliente_punto = $8,
                 distrito = $9, ciudad = $10, referencia = $11, 
-                matricula = $12, costo_maquina = $13, anos_depreciar = $14
-            WHERE machine_id = $15 
+                matricula = $12, costo_maquina = $13, anos_depreciar = $14, dia_depreciacion = $15
+            WHERE machine_id = $16 
             RETURNING *
         `;
+       // 🔥 SE AGREGÓ dia_depreciacion || 1 A LOS VALORES
        const values = [
             name, code, location, brand, model, bill_plate, layoutSeguro, 
             id_cliente_punto || null, distrito || '', ciudad || '', 
             referencia || '', matricula || '', costo_maquina || 0, 
-            anos_depreciar || 5, targetId
+            anos_depreciar || 5, dia_depreciacion || 1, targetId
         ];
         const result = await client.query(updateQuery, values);
 
-        // === 3. SINCRONIZACIÓN MÁGICA CON EL INVENTARIO ===
         let layoutArray = JSON.parse(layoutSeguro);
         if (typeof layout === 'string') {
             try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
@@ -159,8 +151,6 @@ const updateMachine = async (req, res) => {
                 if (bandeja.springs && Array.isArray(bandeja.springs)) {
                     bandeja.springs.forEach(resorte => {
                         const codigo = String(resorte.id || resorte.code || resorte.motor || '');
-                        
-                        // 🔥 MEJORA 1: Extraemos solo el número.
                         let rawCapacidad = resorte.capacity || resorte.capacidad || 10;
                         const capacidad = parseInt(String(rawCapacidad).replace(/\D/g, '')) || 10;
 
@@ -180,7 +170,6 @@ const updateMachine = async (req, res) => {
                 const motoresParaAgregar = motoresEnEditor.filter(m => !motoresEnDB.includes(m.codigo));
                 const motoresParaActualizar = motoresEnEditor.filter(m => motoresEnDB.includes(m.codigo));
 
-                // B) Eliminamos resortes antiguos
                 if (motoresParaEliminar.length > 0) {
                     await client.query(
                         'DELETE FROM inventario WHERE machine_id = $1 AND codigo_motor = ANY ($2)',
@@ -188,7 +177,6 @@ const updateMachine = async (req, res) => {
                     );
                 }
 
-                // C) Agregamos nuevos con la capacidad detectada
                 if (motoresParaAgregar.length > 0) {
                     for (let resorte of motoresParaAgregar) {
                         await client.query(
@@ -198,7 +186,6 @@ const updateMachine = async (req, res) => {
                     }
                 }
 
-                // D) 🔥 MEJORA 2: Actualizamos capacidad
                 if (motoresParaActualizar.length > 0) {
                     for (let resorte of motoresParaActualizar) {
                         await client.query(
@@ -212,7 +199,6 @@ const updateMachine = async (req, res) => {
         
         await client.query('COMMIT');
         
-        // <-- AQUI EMPIEZA LO NUEVO QUE ESTAMOS AGREGANDO ->
         try {
             if (layoutArray && Array.isArray(layoutArray)) {
                 const topic = `jaimez/expendedora/${targetId}/comandos`; 
@@ -253,7 +239,6 @@ const updateMachine = async (req, res) => {
         client.release();
     }
 };
-
 // === 3. FUNCIÓN CREATE MACHINE (TU CÓDIGO INTACTO Y SEGURO) ===
 const createMachine = async (req, res) => {
   try {
