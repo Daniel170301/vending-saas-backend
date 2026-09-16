@@ -51,20 +51,34 @@ const obtenerInventario = async (req, res) => {
     }
 };
 
-// 2. ACTUALIZAR INVENTARIO E HISTORIAL DE ABASTECIMIENTO
+// 2. ACTUALIZAR INVENTARIO E HISTORIAL DE ABASTECIMIENTO (Híbrido)
 const actualizarInventario = async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN'); // Iniciamos transacción segura
 
-        // === 1. CAPTURAMOS EL OPERARIO DEL REQ.BODY ===
-        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, user_email, nombre_operario } = req.body;
+        // Capturamos la nueva variable "cola_productos" (el arreglo mixto)
+        const { machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, user_email, nombre_operario, cola_productos } = req.body;
         
-        const precioFormateado = parseFloat(precio || 0).toFixed(2);
         const capacidadFinal = capacidad ? parseInt(capacidad) : 10;
-        const nuevoStockTotal = parseInt(stock) || 0;
+        
+        // VARIABLES DINÁMICAS (Dependen de si es Único o Mixto)
+        let nombreFinal = nombre_producto;
+        let precioFinal = parseFloat(precio || 0).toFixed(2);
+        let nuevoStockTotal = parseInt(stock) || 0;
+        let colaJson = '[]';
 
-        // 1. Buscamos el estado actual del resorte para calcular cuánto estamos agregando
+        // LÓGICA MODO MIXTO: Si Lovable envía una cola de productos
+        if (cola_productos && Array.isArray(cola_productos) && cola_productos.length > 0) {
+            colaJson = JSON.stringify(cola_productos);
+            // El producto principal que se muestra es el primero de la cola
+            nombreFinal = cola_productos[0].nombre;
+            precioFinal = parseFloat(cola_productos[0].precio || 0).toFixed(2);
+            // El stock total es la suma de todos los productos en la cola
+            nuevoStockTotal = cola_productos.reduce((acc, item) => acc + (parseInt(item.stock) || 0), 0);
+        }
+
+        // 1. Buscamos el estado actual del resorte
         const motorActual = await client.query(
             'SELECT stock FROM inventario WHERE machine_id = $1 AND codigo_motor = $2',
             [machine_id, codigo_motor]
@@ -73,65 +87,55 @@ const actualizarInventario = async (req, res) => {
         const cantidadAnterior = motorActual.rows.length > 0 ? parseInt(motorActual.rows[0].stock) : 0;
         const cantidadAgregada = nuevoStockTotal - cantidadAnterior;
 
-        // 2. Guardamos o actualizamos en el inventario principal
+        // 2. Guardamos o actualizamos (AHORA INCLUYENDO LA COLUMNA cola_productos)
         if (motorActual.rows.length === 0) {
             await client.query(
-                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock, capacidad) VALUES ($1, $2, $3, $4, $5, $6)',
-                [machine_id, codigo_motor, nombre_producto, precioFormateado, nuevoStockTotal, capacidadFinal]
+                'INSERT INTO inventario (machine_id, codigo_motor, nombre_producto, precio, stock, capacidad, cola_productos) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+                [machine_id, codigo_motor, nombreFinal, precioFinal, nuevoStockTotal, capacidadFinal, colaJson]
             );
         } else {
             await client.query(
-                'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3, capacidad = $4 WHERE machine_id = $5 AND codigo_motor = $6',
-                [nombre_producto, precioFormateado, nuevoStockTotal, capacidadFinal, machine_id, codigo_motor]
+                'UPDATE inventario SET nombre_producto = $1, precio = $2, stock = $3, capacidad = $4, cola_productos = $5 WHERE machine_id = $6 AND codigo_motor = $7',
+                [nombreFinal, precioFinal, nuevoStockTotal, capacidadFinal, colaJson, machine_id, codigo_motor]
             );
         }
 
-        // 3. SINCRONIZACIÓN SEGURA: Actualiza precio en otros resortes de esta MAC
-        if (nombre_producto && nombre_producto.trim() !== "") {
+        // 3. SINCRONIZACIÓN SEGURA DE PRECIOS (Solo si es abastecimiento único)
+        if (nombreFinal && nombreFinal.trim() !== "" && colaJson === '[]') {
             await client.query(
                 'UPDATE inventario SET precio = $1 WHERE machine_id = $2 AND nombre_producto = $3',
-                [precioFormateado, machine_id, nombre_producto]
+                [precioFinal, machine_id, nombreFinal]
             );
         }
 
         // 4. REGISTRAR HISTORIAL (SÓLO SI SE AGREGÓ MERCADERÍA)
-        if (cantidadAgregada > 0 && nombre_producto) {
-            // Extraer Costo Unitario de la tabla de almacén
-            const costoRes = await client.query('SELECT unit_cost FROM productos_almacen WHERE name = $1 LIMIT 1', [nombre_producto]);
+        if (cantidadAgregada > 0 && nombreFinal) {
+            const costoRes = await client.query('SELECT unit_cost FROM productos_almacen WHERE name = $1 LIMIT 1', [nombreFinal]);
             const costoUnitario = costoRes.rows.length > 0 ? parseFloat(costoRes.rows[0].unit_cost) : 0;
             
-            // Extraer nombre de la máquina
             const maqRes = await client.query('SELECT name FROM maquinas WHERE machine_id = $1', [machine_id]);
             const nombreMaquina = maqRes.rows.length > 0 ? maqRes.rows[0].name : 'Máquina Desconocida';
 
-            // === 2. INCLUIR EL OPERARIO EN EL INSERT ===
             await client.query(`
                 INSERT INTO historial_abastecimiento 
                 (machine_id, nombre_maquina, codigo_motor, nombre_producto, cantidad_anterior, cantidad_agregada, cantidad_total, costo_unitario, responsable_email, nombre_operario)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             `, [
-                machine_id, 
-                nombreMaquina, 
-                codigo_motor, 
-                nombre_producto, 
-                cantidadAnterior, 
-                cantidadAgregada, 
-                nuevoStockTotal, 
-                costoUnitario, 
-                user_email || 'Administrador',
-                nombre_operario || 'No especificado' // Fallback por seguridad
+                machine_id, nombreMaquina, codigo_motor, nombreFinal, cantidadAnterior, 
+                cantidadAgregada, nuevoStockTotal, costoUnitario, 
+                user_email || 'Administrador', nombre_operario || 'No especificado'
             ]);
         }
 
-        await client.query('COMMIT'); // Guardamos todo permanentemente
+        await client.query('COMMIT');
 
         // 5. Enviamos comando MQTT al ESP32
-        mqttService.enviarComandoPrecio(machine_id, codigo_motor, precioFormateado);
+        mqttService.enviarComandoPrecio(machine_id, codigo_motor, precioFinal);
 
         res.json({ success: true, message: 'Producto guardado, historial registrado y precios sincronizados' });
 
     } catch (error) {
-        await client.query('ROLLBACK'); // Si algo falla, deshacemos todo
+        await client.query('ROLLBACK');
         console.error("Error en DB al actualizar inventario:", error);
         res.status(500).json({ success: false, message: 'Error guardando inventario e historial' });
     } finally {
