@@ -138,28 +138,59 @@ const actualizarInventario = async (req, res) => {
         client.release();
     }
 };
-// 3. REGISTRAR VENTA
+// 3. REGISTRAR VENTA (Versión Híbrida y Segura)
 const registrarVenta = async (req, res) => {
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN');
         const { machine_id, codigo_motor } = req.body;
 
-        // Le pedimos a PostgreSQL que reste 1 al stock actual, SOLO si hay stock mayor a 0
-        const query = `
-            UPDATE inventario 
-            SET stock = stock - 1 
-            WHERE machine_id = $1 AND codigo_motor = $2 AND stock > 0
-            RETURNING *;
-        `;
-        
-        const result = await pool.query(query, [machine_id, codigo_motor]);
+        // 1. Buscamos el motor bloqueando la fila (FOR UPDATE) para evitar fallos si compran 2 a la vez
+        const invRes = await client.query(
+            'SELECT * FROM inventario WHERE machine_id = $1 AND codigo_motor = $2 FOR UPDATE',
+            [machine_id, codigo_motor]
+        );
 
-        // Si rowCount es 0, significa que el resorte estaba vacío o el código no existe
-        if (result.rowCount === 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'No hay stock disponible o el motor no existe' 
-            });
+        if (invRes.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'No hay stock disponible o el motor no existe' });
         }
+
+        let motor = invRes.rows[0];
+        let nuevoStockFinal = 0;
+
+        // 2. LÓGICA MODO MIXTO (Solo se activa si existe la columna y tiene datos)
+        if (motor.cola_productos && motor.cola_productos.length > 0) {
+            let colaProductos = motor.cola_productos;
+            colaProductos[0].stock -= 1;
+            nuevoStockFinal = colaProductos[0].stock;
+
+            if (colaProductos[0].stock <= 0) {
+                colaProductos.shift(); // Saca el producto sin stock de la cola
+            }
+
+            await client.query(
+                'UPDATE inventario SET cola_productos = $1 WHERE machine_id = $2 AND codigo_motor = $3',
+                [JSON.stringify(colaProductos), machine_id, codigo_motor]
+            );
+        } 
+        // 3. LÓGICA NORMAL (Exactamente tu código original)
+        else if (motor.stock > 0) {
+            const updateRes = await client.query(`
+                UPDATE inventario 
+                SET stock = stock - 1 
+                WHERE machine_id = $1 AND codigo_motor = $2 AND stock > 0
+                RETURNING stock;
+            `, [machine_id, codigo_motor]);
+            
+            nuevoStockFinal = updateRes.rows[0].stock;
+        } 
+        else {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ success: false, message: 'No hay stock disponible' });
+        }
+
+        await client.query('COMMIT');
 
         // Aquí más adelante podremos agregar el aviso por MQTT al ESP32 para que gire el motor
         // mqttService.enviarComandoGiro(machine_id, codigo_motor);
@@ -167,15 +198,17 @@ const registrarVenta = async (req, res) => {
         res.json({ 
             success: true, 
             message: 'Venta exitosa, stock reducido en 1',
-            nuevo_stock: result.rows[0].stock
+            nuevo_stock: nuevoStockFinal // Lovable seguirá recibiendo la variable que espera
         });
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Error al registrar la venta:", error);
         res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    } finally {
+        client.release();
     }
 };
-
 // 4. NUEVO: ELIMINAR UN RESORTE ESPECIFICO DEL INVENTARIO
 const deleteSpring = async (req, res) => {
     try {
