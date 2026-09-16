@@ -4,18 +4,14 @@ const mqttService = require('../services/mqttService');
 
 // 1. OBTENER INVENTARIO
 const obtenerInventario = async (req, res) => {
-    // Capturamos cualquier variante de parámetro que use tu archivo de rutas
     const machine_id = req.params.machine_id || req.params.machineId || req.params.id || req.params.mac || Object.values(req.params)[0] || req.query.machine_id; 
     
-    console.log("MAC / ID solicitada por React:", machine_id);
-    console.log("Parámetros completos recibidos en la ruta:", req.params);
-
     if (!machine_id) {
         return res.status(400).json({ success: false, message: 'No se envió la MAC de la máquina' });
     }
 
     try {
-       const query = `
+        const query = `
             SELECT 
                 i.id,
                 i.machine_id,
@@ -29,6 +25,7 @@ const obtenerInventario = async (req, res) => {
                 i.stock,
                 i.capacidad,
                 i.capacidad AS capacity,
+                i.cola_productos,  
                 pa.image_url,
                 pa.unit_cost AS costo_unitario
             FROM inventario i
@@ -40,17 +37,12 @@ const obtenerInventario = async (req, res) => {
         `;
 
         const result = await pool.query(query, [machine_id]);
-        
-        console.log(`Se encontraron ${result.rowCount} productos para esta máquina`);
-
-        // Devolvemos el ARRAY DIRECTO que espera el frontend de Lovable
         res.json(result.rows);
     } catch (error) {
         console.error("Error obteniendo inventario:", error);
         res.status(500).json({ success: false, message: 'Error al obtener inventario' });
     }
 };
-
 // 2. ACTUALIZAR INVENTARIO E HISTORIAL DE ABASTECIMIENTO (Híbrido)
 const actualizarInventario = async (req, res) => {
     const client = await pool.connect();
