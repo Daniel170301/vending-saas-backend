@@ -12,14 +12,17 @@ const warehouseRoutes = require('./routes/warehouseRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const proveedorRoutes = require('./routes/proveedorRoutes');
-const profileRoutes = require('./routes/profileRoutes'); // NUEVA RUTA INTEGRADA
+const profileRoutes = require('./routes/profileRoutes'); 
+
+// === INICIAMOS LOS SERVICIOS EN SEGUNDO PLANO (CRON JOBS) ===
+require('./services/cronJobs');
 
 const app = express(); 
 
 // Middlewares
 app.use(cors()); 
 
-// LA CORRECCIÓN ESTÁ AQUÍ: Aumentamos el límite de JSON y URL-encoded a 10mb
+// Límite de JSON y URL-encoded a 10mb
 app.use(express.json({ limit: '10mb' })); 
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -35,7 +38,7 @@ app.use('/api/productos-almacen', warehouseRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/gastos', expenseRoutes);
 app.use('/api/proveedores', proveedorRoutes);
-app.use('/api/perfil', profileRoutes); // NUEVO ENDPOINT HABILITADO
+app.use('/api/perfil', profileRoutes);
 
 // Ruta base de prueba
 app.get('/', (req, res) => {

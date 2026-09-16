@@ -289,6 +289,25 @@ const agregarDetalleGasto = async (req, res) => {
         client.release();
     }
 };
+// 8. NUEVO: REGISTRAR GASTO OPERATIVO (Logística, Nómina, etc.)
+const crearGasto = async (req, res) => {
+    try {
+        const { categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num } = req.body;
+        
+        const query = `
+            INSERT INTO gastos (categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+        `;
+        
+        const values = [categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num];
+        const result = await pool.query(query, values);
+        
+        res.status(201).json({ success: true, gasto: result.rows[0], message: 'Gasto registrado correctamente' });
+    } catch (error) {
+        console.error("Error al crear gasto operativo:", error);
+        res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+};
 module.exports = {
     registerPurchase,
     getExpenses,
@@ -296,5 +315,6 @@ module.exports = {
     deleteExpense,
     updateExpense,
     eliminarDetalleGasto,
-    agregarDetalleGasto
+    agregarDetalleGasto,
+    crearGasto
 };
