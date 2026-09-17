@@ -89,7 +89,7 @@ const registerPurchase = async (req, res) => {
     }
 };
 
-// 2. OBTENER LISTA DE GASTOS (Tu código original con candado intacto)
+// 2. OBTENER LISTA DE GASTOS (Actualizada para unir ambas tablas)
 const getExpenses = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
@@ -102,23 +102,50 @@ const getExpenses = async (req, res) => {
             }
         }
 
-        let query = `
-            SELECT t.id, t.concepto, t.proveedor, t.metodo_pago, t.total, t.fecha, t.imagen_comprobante 
-            FROM transacciones_gastos t
-            LEFT JOIN usuarios_duenos u ON t.id_dueno::text = u.id::text
-        `;
         let values = [];
+        let whereTransacciones = "";
+        let whereGastos = "";
 
-        if (userRol === 'superadmin') {
-            // Ve todo
-        } else if (user_id) {
-            query += ` WHERE u.email::text = $1 OR t.id_dueno::text = $1`;
+        if (userRol !== 'superadmin' && user_id) {
+            // Aplicamos los filtros de seguridad por usuario a ambas tablas
+            whereTransacciones = `WHERE u1.email::text = $1 OR t.id_dueno::text = $1`;
+            whereGastos = `WHERE u2.email::text = $1 OR m.id_dueno::text = $1`;
             values.push(String(user_id));
-        } else {
-            query += ` WHERE 1 = 0`; 
         }
 
-        query += ` ORDER BY t.fecha DESC;`;
+        // Hacemos un UNION ALL para juntar Mercadería (transacciones) y Operativos (gastos)
+        let query = `
+            SELECT 
+                t.id, 
+                t.concepto, 
+                t.proveedor, 
+                t.metodo_pago, 
+                t.total, 
+                t.fecha, 
+                t.imagen_comprobante,
+                'Mercadería' as categoria
+            FROM transacciones_gastos t
+            LEFT JOIN usuarios_duenos u1 ON t.id_dueno::text = u1.id::text
+            ${whereTransacciones}
+
+            UNION ALL
+
+            SELECT 
+                g.id, 
+                g.concepto, 
+                g.proveedor, 
+                'Efectivo' as metodo_pago, 
+                g.monto as total, -- Lovable lee la palabra "total" para el monto
+                g.fecha, 
+                g.image_url as imagen_comprobante,
+                g.categoria
+            FROM gastos g
+            LEFT JOIN maquinas m ON g.machine_id = m.machine_id
+            LEFT JOIN usuarios_duenos u2 ON m.id_dueno::text = u2.id::text
+            ${whereGastos}
+
+            ORDER BY fecha DESC;
+        `;
         
         const result = await pool.query(query, values);
         res.json({ success: true, gastos: result.rows, data: result.rows });
