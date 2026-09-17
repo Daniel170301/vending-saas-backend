@@ -174,31 +174,36 @@ const getExpenseDetails = async (req, res) => {
     }
 };
 
-// 4. NUEVO: ELIMINAR GASTO Y DEVOLVER STOCK (La reversión que pediste)
+// 4. ELIMINAR GASTO Y DEVOLVER STOCK (Actualizado con bifurcación)
 const deleteExpense = async (req, res) => {
     const client = await pool.connect();
     try {
         const { id } = req.params;
+        const categoria = req.query.categoria; // <-- Ahora el backend exige saber la categoría
+
         await client.query('BEGIN');
 
-        // Buscamos qué se compró para restarlo
-        const detalles = await client.query('SELECT id_producto, cantidad FROM compras_detalle WHERE id_transaccion = $1', [id]);
+        if (categoria === 'Mercadería' || !categoria) {
+            // LÓGICA ORIGINAL: Borrar de mercadería y revertir stock
+            const detalles = await client.query('SELECT id_producto, cantidad FROM compras_detalle WHERE id_transaccion = $1', [id]);
 
-        // Restamos el stock (evitando negativos)
-        for (let det of detalles.rows) {
-            await client.query(`
-                UPDATE productos_almacen 
-                SET stock_warehouse = GREATEST(stock_warehouse - $1, 0) 
-                WHERE id = $2
-            `, [det.cantidad, det.id_producto]);
+            for (let det of detalles.rows) {
+                await client.query(`
+                    UPDATE productos_almacen 
+                    SET stock_warehouse = GREATEST(stock_warehouse - $1, 0) 
+                    WHERE id = $2
+                `, [det.cantidad, det.id_producto]);
+            }
+
+            await client.query('DELETE FROM compras_detalle WHERE id_transaccion = $1', [id]);
+            await client.query('DELETE FROM transacciones_gastos WHERE id = $1', [id]);
+        } else {
+            // LÓGICA NUEVA: Borrar de gastos operativos
+            await client.query('DELETE FROM gastos WHERE id = $1', [id]);
         }
 
-        // Eliminamos el rastro
-        await client.query('DELETE FROM compras_detalle WHERE id_transaccion = $1', [id]);
-        await client.query('DELETE FROM transacciones_gastos WHERE id = $1', [id]);
-
         await client.query('COMMIT');
-        res.json({ success: true, message: 'Gasto eliminado y stock devuelto a su estado anterior' });
+        res.json({ success: true, message: 'Gasto eliminado correctamente' });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error eliminando gasto:', error);
@@ -208,15 +213,21 @@ const deleteExpense = async (req, res) => {
     }
 };
 
-// 5. NUEVO: EDITAR GASTO
+// 5. EDITAR GASTO (Actualizado con bifurcación)
 const updateExpense = async (req, res) => {
     try {
         const { id } = req.params;
-        const { concepto, proveedor } = req.body;
+        const { concepto, proveedor, categoria } = req.body; 
         
-        await pool.query(`
-            UPDATE transacciones_gastos SET concepto = $1, proveedor = $2 WHERE id = $3
-        `, [concepto, proveedor, id]);
+        if (categoria === 'Mercadería' || !categoria) {
+            await pool.query(`
+                UPDATE transacciones_gastos SET concepto = $1, proveedor = $2 WHERE id = $3
+            `, [concepto, proveedor, id]);
+        } else {
+            await pool.query(`
+                UPDATE gastos SET concepto = $1, proveedor = $2 WHERE id = $3
+            `, [concepto, proveedor, id]);
+        }
         
         res.json({ success: true, message: 'Datos actualizados' });
     } catch (error) {
