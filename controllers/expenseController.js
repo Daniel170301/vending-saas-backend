@@ -89,7 +89,7 @@ const registerPurchase = async (req, res) => {
     }
 };
 
-// 2. OBTENER LISTA DE GASTOS (Actualizada para unir ambas tablas)
+// 2. OBTENER LISTA DE GASTOS (Actualizada para filtrar operativos por cliente)
 const getExpenses = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
@@ -107,13 +107,12 @@ const getExpenses = async (req, res) => {
         let whereGastos = "";
 
         if (userRol !== 'superadmin' && user_id) {
-            // Aplicamos los filtros de seguridad por usuario a ambas tablas
+            // Ahora ambas tablas filtran correctamente por el id_dueno o correo
             whereTransacciones = `WHERE u1.email::text = $1 OR t.id_dueno::text = $1`;
-            whereGastos = `WHERE u2.email::text = $1 OR m.id_dueno::text = $1`;
+            whereGastos = `WHERE u2.email::text = $1 OR g.id_dueno::text = $1`;
             values.push(String(user_id));
         }
 
-        // Hacemos un UNION ALL para juntar Mercadería (transacciones) y Operativos (gastos)
         let query = `
             SELECT 
                 t.id, 
@@ -135,13 +134,12 @@ const getExpenses = async (req, res) => {
                 g.concepto, 
                 g.proveedor, 
                 'Efectivo' as metodo_pago, 
-                g.monto as total, -- Lovable lee la palabra "total" para el monto
+                g.monto as total, 
                 g.fecha, 
                 g.image_url as imagen_comprobante,
                 g.categoria
             FROM gastos g
-            LEFT JOIN maquinas m ON g.machine_id = m.machine_id
-            LEFT JOIN usuarios_duenos u2 ON m.id_dueno::text = u2.id::text
+            LEFT JOIN usuarios_duenos u2 ON g.id_dueno::text = u2.id::text
             ${whereGastos}
 
             ORDER BY fecha DESC;
@@ -327,23 +325,39 @@ const agregarDetalleGasto = async (req, res) => {
         client.release();
     }
 };
-// 8. NUEVO: REGISTRAR GASTO OPERATIVO (Logística, Nómina, etc.)
+// 8. REGISTRAR GASTO OPERATIVO (Actualizada para amarrar el gasto al usuario)
 const crearGasto = async (req, res) => {
+    const client = await pool.connect();
     try {
-        const { categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num } = req.body;
+        const { categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num, id_usuario } = req.body;
         
+        await client.query('BEGIN');
+
+        // Lógica para convertir el correo (id_usuario) al ID real de la base de datos
+        let id_dueno_real = id_usuario;
+        if (typeof id_usuario === 'string' && id_usuario.includes('@')) {
+            const userRes = await client.query('SELECT id FROM usuarios_duenos WHERE email = $1', [id_usuario]);
+            if (userRes.rows.length > 0) {
+                id_dueno_real = userRes.rows[0].id;
+            }
+        }
+
         const query = `
-            INSERT INTO gastos (categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+            INSERT INTO gastos (categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num, id_dueno) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
         `;
         
-        const values = [categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num];
-        const result = await pool.query(query, values);
+        const values = [categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num, id_dueno_real];
+        const result = await client.query(query, values);
         
+        await client.query('COMMIT');
         res.status(201).json({ success: true, gasto: result.rows[0], message: 'Gasto registrado correctamente' });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Error al crear gasto operativo:", error);
         res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    } finally {
+        client.release();
     }
 };
 module.exports = {
