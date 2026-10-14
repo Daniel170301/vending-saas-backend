@@ -43,12 +43,7 @@ mqttClient.on('message', async (topic, message) => {
 // 1. Buscamos directamente el último nombre del cliente en la tabla donde el webhook guarda los pagos
                     let nombreCliente = "Desconocido";
                     try {
-                        // Buscamos en la tabla de pagos o transacciones recientes de Yape
-                        const yapeRes = await pool.query(
-                            'SELECT nombre_cliente FROM historial_ventas WHERE nombre_cliente != \'Desconocido\' ORDER BY id DESC LIMIT 1'
-                        );
-                        // O si tienes una tabla específica de webhooks de yape, úsala aquí. 
-                        // Como alternativa directa leyendo de la misma tabla de máquinas si el webhook la actualiza:
+                        // El webhook de Yape guarda el nombre en maquinas.ultimo_cliente
                         const maqRes = await pool.query(
                             'SELECT ultimo_cliente FROM maquinas WHERE machine_id = $1',
                             [machine_id]

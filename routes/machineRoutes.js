@@ -5,6 +5,7 @@ const router = express.Router();
 // 1. IMPORTACIÓN CORREGIDA: Traemos todas las funciones, incluyendo updateMachineSettings
 const { 
     getMachines, 
+    getMachine,
     updateMachine, 
     createMachine, 
     deleteMachine,
@@ -13,6 +14,7 @@ const {
 
 // 2. TUS RUTAS
 router.get('/', getMachines);
+router.get('/:id', getMachine);   // una máquina completa (con layout)
 router.post('/', createMachine);
 router.put('/:id', updateMachine);
 router.delete('/:id', deleteMachine);

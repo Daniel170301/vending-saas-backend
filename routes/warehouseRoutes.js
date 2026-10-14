@@ -3,20 +3,25 @@ const express = require('express');
 const router = express.Router();
 const warehouseController = require('../controllers/warehouseController');
 
-// Ruta GET para obtener los productos
+// Lista de productos (sin las fotos dentro: cada foto llega por su propia URL)
 router.get('/', warehouseController.obtenerAlmacen);
 
-// Ruta POST para crear un producto
+// Foto de un producto, con caché del navegador
+router.get('/:id/imagen', warehouseController.obtenerImagen);
+
+// Crear producto
 router.post('/', warehouseController.crearProductoAlmacen);
 
-// Ruta PUT para actualizar/editar un producto existente
+// Editar producto (solo cambia los campos que llegan)
 router.put('/:id', warehouseController.editarProductoAlmacen);
 
-// ✅ CORRECCIÓN: Usamos warehouseController. adelante
+// Eliminar producto
 router.delete('/:id', warehouseController.eliminarProductoAlmacen);
 
-// Ruta PUT para actualizar (descontar) exclusivamente el stock
+// Stock del almacén: { stock_warehouse } fija el valor, { delta } suma/resta de forma atómica
 router.put('/:id/stock', warehouseController.actualizarStock);
-// Ruta POST para sincronizar todos los precios del planograma con la máquina ESP32
+
+// Sincronizar todos los precios del planograma con la máquina ESP32
 router.post('/machines/:machine_id/sincronizar-precios', warehouseController.sincronizarPreciosMaquina);
+
 module.exports = router;

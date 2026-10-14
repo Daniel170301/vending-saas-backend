@@ -1,6 +1,32 @@
 // controllers/machineController.js
 const pool = require('../config/database');
 const mqttService = require('../services/mqttService'); 
+const { rolDe } = require('../utils/usuarios');
+
+// Tipo de la columna layout (json, jsonb o text), para contar bandejas/resortes en SQL
+let tipoLayout = null;
+async function exprLayout() {
+    if (!tipoLayout) {
+        const r = await pool.query(`SELECT data_type FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'maquinas' AND column_name = 'layout'`);
+        tipoLayout = r.rows[0]?.data_type || 'jsonb';
+    }
+    const L = tipoLayout === 'jsonb' ? 'm.layout' : tipoLayout === 'json' ? 'm.layout::jsonb' : "NULLIF(m.layout::text, '')::jsonb";
+    const bandejas = `CASE jsonb_typeof(${L}) WHEN 'array' THEN ${L} WHEN 'object' THEN COALESCE(${L}->'trays', '[]'::jsonb) ELSE '[]'::jsonb END`;
+    return `
+        (SELECT count(*) FROM jsonb_array_elements(${bandejas}) t)::int AS bandejas_total,
+        (SELECT COALESCE(SUM(CASE WHEN jsonb_typeof(t->'springs') = 'array' THEN jsonb_array_length(t->'springs') ELSE 0 END), 0)
+           FROM jsonb_array_elements(${bandejas}) t)::int AS resortes_total`;
+}
+
+// true si el layout no tiene ninguna bandeja (vacío, null, "[]", {trays: []} o JSON roto)
+function esLayoutVacio(valor) {
+    let x = valor;
+    if (typeof x === 'string') { try { x = JSON.parse(x); } catch { return true; } }
+    if (x == null) return true;
+    const bandejas = Array.isArray(x) ? x : Array.isArray(x.trays) ? x.trays : null;
+    return !bandejas || bandejas.length === 0;
+}
 
 // === 1. FUNCIÓN GET MACHINES (ACTUALIZADA CON MODO DIOS) ===
 const getMachines = async (req, res) => {
@@ -11,10 +37,10 @@ const getMachines = async (req, res) => {
             return res.json([]); 
         }
 
-        console.log(`Buscando máquinas para el usuario: ${usuarioSolicitante}`);
-
-        const userRes = await pool.query('SELECT rol FROM usuarios_duenos WHERE email = $1', [usuarioSolicitante]);
-        const userRol = userRes.rows.length > 0 ? userRes.rows[0].rol : 'dueno';
+        const userRol = await rolDe(usuarioSolicitante);
+        // ?ligero=1 -> sin el layout completo (con 1000 máquinas pesa megas); trae bandejas_total y resortes_total.
+        // Para editar una máquina se pide completa con GET /api/machines/:id
+        const ligero = ['1', 'true', 'si'].includes(String(req.query.ligero || '').toLowerCase());
 
         let query = '';
         let queryParams = [];
@@ -33,7 +59,7 @@ const getMachines = async (req, res) => {
                 m.macrodroid_activo,
                 m.brand, m.model, m.plate, m.coin_base, m.coin_current,
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
-                m.bill_model, m.bill_plate, m.layout,
+                m.bill_model, m.bill_plate, ${ligero ? await exprLayout() : 'm.layout'},
                 
                 m.distrito, 
                 m.ciudad, 
@@ -65,6 +91,25 @@ const getMachines = async (req, res) => {
     } catch (error) {
         console.error("Error obteniendo máquinas:", error);
         res.status(500).json({ success: false, message: "Error del servidor" });
+    }
+};
+
+// === 1b. UNA MÁQUINA COMPLETA (con layout)  GET /api/machines/:id ===
+const getMachine = async (req, res) => {
+    try {
+        const r = await pool.query(`
+            SELECT m.*, m.machine_id AS id, COALESCE(m.name, m.machine_id) AS name, COALESCE(m.code, m.machine_id) AS code,
+                   COALESCE(m.location, m.ubicacion) AS location, m.numero_celular AS phone,
+                   u.email AS owner_email, u.nombre AS owner_name, c.razon_social AS nombre_cliente
+            FROM maquinas m
+            LEFT JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
+            LEFT JOIN empresas_clientes c ON m.id_cliente_punto = c.id_usuario
+            WHERE m.machine_id = $1`, [req.params.id]);
+        if (!r.rows.length) return res.status(404).json({ success: false, message: 'Máquina no encontrada' });
+        res.json(r.rows[0]);
+    } catch (error) {
+        console.error('Error obteniendo la máquina:', error);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
     }
 };
 
@@ -120,28 +165,53 @@ const updateMachine = async (req, res) => {
         }
 
         const targetId = code || id;
-        
-        // 🔥 SE AGREGÓ dia_depreciacion = $15 A LA CONSULTA SQL
-       const updateQuery = `
-            UPDATE maquinas 
-            SET name = $1, code = $2, location = $3, brand = $4, model = $5, 
-                bill_plate = $6, layout = $7, id_cliente_punto = $8,
-                distrito = $9, ciudad = $10, referencia = $11, 
-                matricula = $12, costo_maquina = $13, anos_depreciar = $14, dia_depreciacion = $15
-            WHERE machine_id = $16 
-            RETURNING *
-        `;
-       // 🔥 SE AGREGÓ dia_depreciacion || 1 A LOS VALORES
-       const values = [
-            name, code, location, brand, model, bill_plate, layoutSeguro, 
-            id_cliente_punto || null, distrito || '', ciudad || '', 
-            referencia || '', matricula || '', costo_maquina || 0, 
-            anos_depreciar || 5, dia_depreciacion || 1, targetId
-        ];
-        const result = await client.query(updateQuery, values);
 
-        let layoutArray = JSON.parse(layoutSeguro);
-        if (typeof layout === 'string') {
+        // PROTECCIÓN: un layout VACÍO nunca reemplaza a uno que tiene bandejas (evita perder el
+        // planograma por un error del frontend). Para vaciarlo a propósito: { layout: [], borrar_layout: true }
+        let ignorarLayout = false;
+        if (layout !== undefined && esLayoutVacio(layoutSeguro) && req.body.borrar_layout !== true) {
+            const actual = await client.query('SELECT layout FROM maquinas WHERE machine_id = $1', [targetId]);
+            if (actual.rows.length && !esLayoutVacio(actual.rows[0].layout)) {
+                ignorarLayout = true;
+                console.warn(`[máquina ${targetId}] llegó un layout vacío; se conserva el planograma actual`);
+            }
+        }
+
+        // ACTUALIZACIÓN PARCIAL: solo se cambian los campos que llegan.
+        // Antes, si el frontend mandaba solo { layout } (por ejemplo al abastecer), se borraban
+        // el nombre, código, ubicación, cliente, costo y depreciación de la máquina.
+        const b = req.body;
+        const campos = [
+            ['name', name],
+            ['code', code],
+            ['location', location],
+            ['brand', brand],
+            ['model', model],
+            ['bill_plate', bill_plate],
+            ['layout', layout !== undefined ? layoutSeguro : undefined],
+            ['id_cliente_punto', id_cliente_punto !== undefined ? (id_cliente_punto || null) : undefined],
+            ['distrito', distrito !== undefined ? (distrito || '') : undefined],
+            ['ciudad', ciudad !== undefined ? (ciudad || '') : undefined],
+            ['referencia', referencia !== undefined ? (referencia || '') : undefined],
+            ['matricula', matricula !== undefined ? (matricula || '') : undefined],
+            ['costo_maquina', costo_maquina !== undefined ? (costo_maquina || 0) : undefined],
+            ['anos_depreciar', anos_depreciar !== undefined ? (anos_depreciar || 5) : undefined],
+            ['dia_depreciacion', dia_depreciacion !== undefined ? (dia_depreciacion || 1) : undefined],
+        ].filter(([campo]) => b[campo] !== undefined && !(campo === 'layout' && ignorarLayout));
+
+        let result;
+        if (campos.length) {
+            const sets = campos.map(([campo], i) => `${campo} = $${i + 1}`).join(', ');
+            result = await client.query(
+                `UPDATE maquinas SET ${sets} WHERE machine_id = $${campos.length + 1} RETURNING *`,
+                [...campos.map(([, valor]) => valor), targetId]);
+        } else {
+            result = await client.query('SELECT * FROM maquinas WHERE machine_id = $1', [targetId]);
+        }
+
+        // Los resortes y los precios solo se sincronizan si llegó un layout
+        let layoutArray = layout !== undefined && !ignorarLayout ? JSON.parse(layoutSeguro) : null;
+        if (typeof layout === 'string' && !ignorarLayout) {
             try { layoutArray = JSON.parse(layout); } catch(e) { console.log("No se pudo parsear el layout"); }
         }
 
@@ -363,6 +433,7 @@ const updateMachineSettings = async (req, res) => {
 // Recuerda exportarla al final del archivo:
 module.exports = {
     getMachines,
+    getMachine,
     updateMachine,
     createMachine,
     deleteMachine,

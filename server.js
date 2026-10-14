@@ -47,4 +47,16 @@ const PORT = process.env.PORT || 10000;
 
 server.listen(PORT, () => {
   console.log(`Servidor SaaS corriendo en el puerto ${PORT}`);
+  // Índices y columna de versión de fotos (en segundo plano, no retrasa el arranque)
+  require('./services/migraciones').migrar()
+    .then(() => {
+      if (process.env.OPTIMIZAR_IMAGENES_AL_INICIAR === 'true') {
+        return require('./services/optimizarImagenes').optimizarImagenes();
+      }
+    })
+    .catch((e) => console.error('[migracion]', e.message));
 });
+
+// Mayor que el tiempo del balanceador de Render: reutiliza conexiones en vez de abrir nuevas
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;

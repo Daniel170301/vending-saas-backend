@@ -93,6 +93,8 @@ const registerPurchase = async (req, res) => {
 const getExpenses = async (req, res) => {
     try {
         const user_id = req.query.user_id || req.query.user || req.query.email;
+        // ?ligero=1 -> la lista NO trae las fotos de los comprobantes (se piden al abrir uno)
+        const ligero = ['1', 'true', 'si'].includes(String(req.query.ligero || '').toLowerCase());
         let userRol = 'dueno';
         
         if (user_id) {
@@ -121,7 +123,7 @@ const getExpenses = async (req, res) => {
                 t.metodo_pago, 
                 t.total, 
                 t.fecha, 
-                t.imagen_comprobante,
+                ${ligero ? 'NULL::text AS imagen_comprobante, (t.imagen_comprobante IS NOT NULL) AS tiene_comprobante' : 't.imagen_comprobante'},
                 'Mercadería' as categoria
             FROM transacciones_gastos t
             LEFT JOIN usuarios_duenos u1 ON t.id_dueno::text = u1.id::text
@@ -136,7 +138,7 @@ const getExpenses = async (req, res) => {
                 'Efectivo' as metodo_pago, 
                 g.monto as total, 
                 g.fecha, 
-                g.image_url as imagen_comprobante,
+                ${ligero ? 'NULL::text AS imagen_comprobante, (g.image_url IS NOT NULL) AS tiene_comprobante' : 'g.image_url as imagen_comprobante'},
                 g.categoria
             FROM gastos g
             LEFT JOIN usuarios_duenos u2 ON g.id_dueno::text = u2.id::text
@@ -164,10 +166,29 @@ const getExpenseDetails = async (req, res) => {
             LEFT JOIN productos_almacen pa ON cd.id_producto = pa.id
             WHERE cd.id_transaccion = $1;
         `;
-        const result = await pool.query(query, [id]);
-        res.json({ success: true, detalles: result.rows });
+        const [result, cab] = await Promise.all([
+            pool.query(query, [id]),
+            pool.query('SELECT imagen_comprobante FROM transacciones_gastos WHERE id = $1', [id]).catch(() => ({ rows: [] })),
+        ]);
+        res.json({ success: true, detalles: result.rows, imagen_comprobante: cab.rows[0]?.imagen_comprobante || null });
     } catch (error) {
         console.error('Error al obtener detalles:', error);
+        res.status(500).json({ success: false, message: 'Error en BD' });
+    }
+};
+
+// 3b. NUEVO: SOLO LA FOTO DEL COMPROBANTE  GET /api/gastos/:id/comprobante?categoria=...
+const getComprobante = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const categoria = req.query.categoria;
+        const esMercaderia = !categoria || categoria === 'Mercadería';
+        const r = esMercaderia
+            ? await pool.query('SELECT imagen_comprobante AS img FROM transacciones_gastos WHERE id = $1', [id])
+            : await pool.query('SELECT image_url AS img FROM gastos WHERE id = $1', [id]);
+        res.json({ success: true, imagen_comprobante: r.rows[0]?.img || null });
+    } catch (error) {
+        console.error('Error al obtener comprobante:', error);
         res.status(500).json({ success: false, message: 'Error en BD' });
     }
 };
@@ -364,6 +385,7 @@ module.exports = {
     registerPurchase,
     getExpenses,
     getExpenseDetails,
+    getComprobante,
     deleteExpense,
     updateExpense,
     eliminarDetalleGasto,

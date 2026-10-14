@@ -2,16 +2,19 @@
 const express = require('express');
 const router = express.Router();
 
-// Importamos ambas funciones del controlador
-const { 
-    getDashboardMetrics, 
-    obtenerTopProductos 
+const {
+  getDashboardMetrics,
+  obtenerTopProductos,
+  obtenerResumen,
 } = require('../controllers/dashboardController');
 
-// 1. Ruta original para las métricas generales (Accesible en: /api/dashboard)
+// Métricas generales (/api/dashboard)
 router.get('/', getDashboardMetrics);
 
-// 2. NUEVA RUTA para las estadísticas del Top 20 (Accesible en: /api/dashboard/top-productos)
+// Top 20 productos (/api/dashboard/top-productos)
 router.get('/top-productos', obtenerTopProductos);
+
+// NUEVO: todo el Inicio en una sola respuesta (/api/dashboard/resumen?email=...)
+router.get('/resumen', obtenerResumen);
 
 module.exports = router;

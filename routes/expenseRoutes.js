@@ -6,6 +6,7 @@ const {
     registerPurchase, 
     getExpenses, 
     getExpenseDetails, 
+    getComprobante,
     deleteExpense, 
     updateExpense,
     eliminarDetalleGasto,
@@ -25,6 +26,7 @@ router.post('/purchase', registerPurchase);
 
 // NUEVAS RUTAS para el modal general (Detalle, Eliminar todo, Editar concepto/proveedor)
 router.get('/:id/detalle', getExpenseDetails);
+router.get('/:id/comprobante', getComprobante);
 router.delete('/:id', deleteExpense);
 router.put('/:id', updateExpense);
 

@@ -93,6 +93,26 @@ const obtenerTopProductos = async (req, res) => {
             paramIndex++;
         }
 
+        // 2b. Sin máquina específica: usa los totales por día (rápido con miles de máquinas)
+        const resumenVentas = require('../services/resumenVentas');
+        if (resumenVentas.disponible() && !(machine_id && machine_id !== 'general' && machine_id !== 'Todas')) {
+            const { usuarioPorEmail } = require('../utils/usuarios');
+            const u = await usuarioPorEmail(user_email);
+            if (!u) return res.json({ success: true, top_productos: [] });
+            const vals = [String(u.id)];
+            let filtro = '';
+            if (fecha_inicio) { vals.push(String(fecha_inicio).slice(0, 10)); filtro += ` AND dia >= $${vals.length}::date`; }
+            if (fecha_fin) { vals.push(String(fecha_fin).slice(0, 10)); filtro += ` AND dia <= $${vals.length}::date`; }
+            const { rows } = await pool.query(`
+                SELECT producto AS nombre_producto, SUM(unidades)::bigint AS total_unidades, SUM(monto) AS ingresos
+                FROM ventas_dia_producto
+                WHERE id_dueno = $1 ${filtro}
+                GROUP BY 1 HAVING SUM(unidades) > 0
+                ORDER BY total_unidades DESC
+                LIMIT 20`, vals);
+            return res.json({ success: true, top_productos: rows });
+        }
+
         // 3. Tu misma consulta, pero inyectando el WHERE dinámico
         const query = `
             SELECT 
@@ -119,5 +139,6 @@ const obtenerTopProductos = async (req, res) => {
 
 module.exports = {
     getDashboardMetrics,
-    obtenerTopProductos // <-- Exportamos la nueva función
+    obtenerTopProductos,
+    obtenerResumen: require('./dashboardResumen').obtenerResumen,
 };

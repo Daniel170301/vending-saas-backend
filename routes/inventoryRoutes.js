@@ -2,41 +2,49 @@
 const express = require('express');
 const router = express.Router();
 
-const { 
-    obtenerInventario, 
-    actualizarInventario, 
-    registrarVenta,
-    deleteSpring,
-    quitarStockYDevolverAlmacen,
-    obtenerHistorialAbastecimiento,
-    eliminarHistorialAbastecimiento
+const {
+  obtenerInventario,
+  actualizarInventario,
+  abastecerLote,
+  resumenInventario,
+  registrarVenta,
+  deleteSpring,
+  quitarStockYDevolverAlmacen,
+  obtenerHistorialAbastecimiento,
+  eliminarHistorialAbastecimiento,
 } = require('../controllers/inventoryController');
 
-// 1. OBTENER inventario por MAC
-router.get('/:machine_id', obtenerInventario); 
+// === RUTAS FIJAS (deben ir ANTES de "/:machine_id") ===
 
-// 2. GUARDAR / ACTUALIZAR RESORTE
-router.post('/', actualizarInventario);          
-router.post('/actualizar', actualizarInventario); 
-router.put('/actualizar', actualizarInventario);  
+// Resumen por máquina: unidades, faltantes, costo y venta futura
+router.get('/resumen', resumenInventario);
 
-// 3. REGISTRAR venta
+// Relleno en grupo: varios resortes en una sola petición
+router.post('/lote', abastecerLote);
+
+// Guardar / actualizar un resorte
+router.post('/', actualizarInventario);
+router.post('/actualizar', actualizarInventario);
+router.put('/actualizar', actualizarInventario);
+
+// Registrar venta
 router.post('/vender', registrarVenta);
 
-// 4. QUITAR STOCK
-router.post('/quitar-stock', quitarStockYDevolverAlmacen); 
+// Quitar stock
+router.post('/quitar-stock', quitarStockYDevolverAlmacen);
 
-// === RUTAS FIJAS O CON PREFIJOS (DEBEN IR ANTES QUE LAS DINÁMICAS DOBLES) ===
-
-// 6. HISTORIAL DE ABASTECIMIENTO
-router.get('/:machine_id/abastecimiento', obtenerHistorialAbastecimiento);
-
-// 7. ELIMINAR Y REVERTIR UN ABASTECIMIENTO (¡Ahora sí la leerá correctamente!)
+// Revertir un abastecimiento
 router.delete('/abastecimiento/:id', eliminarHistorialAbastecimiento);
 
-// === RUTAS ALTAMENTE DINÁMICAS (DEBEN IR AL FINAL) ===
+// === RUTAS DINÁMICAS ===
 
-// 5. ELIMINAR un resorte específico
+// Inventario por MAC
+router.get('/:machine_id', obtenerInventario);
+
+// Historial de abastecimiento
+router.get('/:machine_id/abastecimiento', obtenerHistorialAbastecimiento);
+
+// Eliminar un resorte
 router.delete('/:machine_id/:codigo_motor', deleteSpring);
 
 module.exports = router;

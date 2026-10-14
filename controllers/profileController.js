@@ -1,4 +1,8 @@
 const pool = require('../config/database'); // Ajusta la ruta a tu conexión de BD si es diferente
+const { olvidar } = require('../utils/usuarios');
+
+// Nunca devolver la contraseña (antes GET /api/perfil/:email la entregaba a cualquiera)
+const sinClave = ({ password, contrasena, ...resto }) => resto;
 
 const getProfile = async (req, res) => {
     const { email } = req.params;
@@ -7,7 +11,7 @@ const getProfile = async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Usuario no encontrado' });
         }
-        res.json(result.rows[0]);
+        res.json(sinClave(result.rows[0]));
     } catch (error) {
         console.error('Error al obtener perfil:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
@@ -39,7 +43,8 @@ const updateProfile = async (req, res) => {
             return res.status(404).json({ error: 'Usuario no encontrado' });
         }
 
-        res.json({ message: 'Perfil actualizado correctamente', user: result.rows[0] });
+        olvidar(email_actual);
+        res.json({ message: 'Perfil actualizado correctamente', user: sinClave(result.rows[0]) });
     } catch (error) {
         console.error('Error actualizando perfil:', error);
         res.status(500).json({ error: 'Error actualizando perfil en la base de datos' });

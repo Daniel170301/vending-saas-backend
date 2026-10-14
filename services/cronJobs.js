@@ -27,3 +27,8 @@ cron.schedule('1 0 * * *', async () => {
         console.error("[CRON] Error ejecutando depreciación mensual:", error);
     }
 });
+
+// Cada noche (03:10, hora de Lima) se revisan los totales de ventas de los últimos 3 días
+cron.schedule('10 3 * * *', () => {
+    require('./resumenVentas').revisar(3);
+}, { timezone: 'America/Lima' });
