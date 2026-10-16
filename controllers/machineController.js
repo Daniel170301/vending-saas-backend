@@ -2,6 +2,31 @@
 const pool = require('../config/database');
 const mqttService = require('../services/mqttService'); 
 const { rolDe } = require('../utils/usuarios');
+const { verificarSuperadmin, MENSAJES, ROLES_SUPERADMIN } = require('../utils/auth');
+const identidad = require('../services/identidadMaquina');
+const auditoria = require('../utils/auditoria');
+
+// Mensaje cuando se ignora un ID de equipo que no mandó el superadmin. Si quien guarda ES el
+// superadmin pero su sesión venció, se le dice eso; a los demás, que lo asigna el superadmin.
+async function mensajeCodigoIgnorado(sa, email) {
+    if (sa.motivo !== 'no_superadmin' && email && ROLES_SUPERADMIN.has(await rolDe(email))) return MENSAJES[sa.motivo];
+    return 'El código de la máquina lo asigna el superadmin de Qhapay.';
+}
+
+// Campos de identidad que ven todas las pantallas: nombre, código KMT, región, ID del equipo
+async function camposIdentidad() {
+    return `${await identidad.sqlNombre('m')} AS name,
+            NULLIF(btrim(m.name), '') AS nombre,
+            ${await identidad.sqlCodigo('m')} AS code,
+            ${await identidad.sqlCamposKMT('m')},
+            m.machine_id AS equipo_id`;
+}
+// Orden de las listas: por código KMT (región y número) y después por nombre
+async function ordenMaquinas() {
+    return (await identidad.hayKMT())
+        ? `m.region_id NULLS LAST, m.numero_kmt NULLS LAST, lower(${await identidad.sqlNombre('m')})`
+        : `lower(${await identidad.sqlNombre('m')})`;
+}
 
 // Tipo de la columna layout (json, jsonb o text), para contar bandejas/resortes en SQL
 let tipoLayout = null;
@@ -50,8 +75,7 @@ const getMachines = async (req, res) => {
                 m.machine_id AS id,
                 m.id_dueno,
                 m.id_cliente_punto,
-                COALESCE(m.name, m.machine_id) AS name, 
-                COALESCE(m.code, m.machine_id) AS code,
+                ${await camposIdentidad()},
                 COALESCE(m.location, m.ubicacion) AS location,
                 m.numero_celular AS phone,
                 'online' AS status,
@@ -79,15 +103,16 @@ const getMachines = async (req, res) => {
             LEFT JOIN empresas_clientes c ON m.id_cliente_punto = c.id_usuario
         `;
 
+        const orden = await ordenMaquinas();
         if (userRol === 'superadmin') {
-            query = baseQuery + ' ORDER BY u.email, m.name;';
+            query = baseQuery + ` ORDER BY ${orden};`;
         } else {
-            query = baseQuery + ' WHERE u.email = $1;';
+            query = baseQuery + ` WHERE u.email = $1 ORDER BY ${orden};`;
             queryParams = [usuarioSolicitante];
         }
 
         const resultado = await pool.query(query, queryParams);
-        res.json(resultado.rows);
+        res.json(resultado.rows.map(identidad.decorar));
     } catch (error) {
         console.error("Error obteniendo máquinas:", error);
         res.status(500).json({ success: false, message: "Error del servidor" });
@@ -98,7 +123,7 @@ const getMachines = async (req, res) => {
 const getMachine = async (req, res) => {
     try {
         const r = await pool.query(`
-            SELECT m.*, m.machine_id AS id, COALESCE(m.name, m.machine_id) AS name, COALESCE(m.code, m.machine_id) AS code,
+            SELECT m.*, m.machine_id AS id, ${await camposIdentidad()},
                    COALESCE(m.location, m.ubicacion) AS location, m.numero_celular AS phone,
                    u.email AS owner_email, u.nombre AS owner_name, c.razon_social AS nombre_cliente
             FROM maquinas m
@@ -106,7 +131,7 @@ const getMachine = async (req, res) => {
             LEFT JOIN empresas_clientes c ON m.id_cliente_punto = c.id_usuario
             WHERE m.machine_id = $1`, [req.params.id]);
         if (!r.rows.length) return res.status(404).json({ success: false, message: 'Máquina no encontrada' });
-        res.json(r.rows[0]);
+        res.json(identidad.decorar(r.rows[0]));
     } catch (error) {
         console.error('Error obteniendo la máquina:', error);
         res.status(500).json({ success: false, message: 'Error del servidor' });
@@ -137,34 +162,22 @@ const updateMachine = async (req, res) => {
             }
         }
 
-        await client.query('BEGIN'); 
+        // CÓDIGO KMT e ID DEL EQUIPO: aquí NUNCA se cambian (aunque lleguen en "code").
+        // Solo el superadmin los cambia, desde /api/superadmin/maquinas/:id/codigo-kmt y /equipo.
+        // Antes, mandar un "code" distinto renombraba la máquina y se perdían datos.
+        await client.query('BEGIN');
+        const targetId = id;
 
-        if (code && id !== code) {
-            await client.query('UPDATE maquinas SET code = $1 WHERE machine_id = $2', [`temp_${id}`, id]);
-            
-            await client.query(`
-                INSERT INTO maquinas (
-                    machine_id, code, id_dueno, name, location, brand, model, plate,
-                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled,
-                    bill_brand, bill_model, bill_plate, layout, ubicacion,
-                    pasarela_tipo, numero_celular, dispense_pending,
-                    fecha_instalacion, ultimo_cliente
-                )
-                SELECT 
-                    $1, $1, id_dueno, name, location, brand, model, plate,
-                    coin_base, coin_current, coin_brand, coin_plate, bill_enabled,
-                    bill_brand, bill_model, bill_plate, layout, ubicacion,
-                    pasarela_tipo, numero_celular, dispense_pending,
-                    fecha_instalacion, ultimo_cliente
-                FROM maquinas WHERE machine_id = $2
-            `, [code, id]);
-            
-            await client.query('UPDATE inventario SET machine_id = $1 WHERE machine_id = $2', [code, id]);
-            await client.query('UPDATE historial_ventas SET machine_id = $1 WHERE machine_id = $2', [code, id]);
-            await client.query('DELETE FROM maquinas WHERE machine_id = $1', [id]);
+        const actualFila = await client.query(
+            `SELECT NULLIF(btrim(name), '') AS nombre, ${await identidad.sqlCodigo('maquinas')} AS codigo
+             FROM maquinas WHERE machine_id = $1`, [targetId]);
+        // La pantalla muestra el código cuando la máquina no tiene nombre: si al guardar devuelve ese
+        // mismo texto como nombre, no se guarda (seguiría figurando "sin nombre").
+        let nombreNuevo = name;
+        if (name !== undefined && actualFila.rows.length && !actualFila.rows[0].nombre) {
+            const n = identidad.limpiar(name);
+            if (!n || n === actualFila.rows[0].codigo || n === targetId) nombreNuevo = undefined;
         }
-
-        const targetId = code || id;
 
         // PROTECCIÓN: un layout VACÍO nunca reemplaza a uno que tiene bandejas (evita perder el
         // planograma por un error del frontend). Para vaciarlo a propósito: { layout: [], borrar_layout: true }
@@ -182,8 +195,7 @@ const updateMachine = async (req, res) => {
         // el nombre, código, ubicación, cliente, costo y depreciación de la máquina.
         const b = req.body;
         const campos = [
-            ['name', name],
-            ['code', code],
+            ['name', nombreNuevo],
             ['location', location],
             ['brand', brand],
             ['model', model],
@@ -197,7 +209,8 @@ const updateMachine = async (req, res) => {
             ['costo_maquina', costo_maquina !== undefined ? (costo_maquina || 0) : undefined],
             ['anos_depreciar', anos_depreciar !== undefined ? (anos_depreciar || 5) : undefined],
             ['dia_depreciacion', dia_depreciacion !== undefined ? (dia_depreciacion || 1) : undefined],
-        ].filter(([campo]) => b[campo] !== undefined && !(campo === 'layout' && ignorarLayout));
+        ].filter(([campo, valor]) => (campo === 'name' ? valor !== undefined : b[campo] !== undefined)
+                                    && !(campo === 'layout' && ignorarLayout));
 
         let result;
         if (campos.length) {
@@ -207,6 +220,11 @@ const updateMachine = async (req, res) => {
                 [...campos.map(([, valor]) => valor), targetId]);
         } else {
             result = await client.query('SELECT * FROM maquinas WHERE machine_id = $1', [targetId]);
+        }
+        if (!result.rows.length) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false,
+                message: 'La máquina no existe (quizá cambió de equipo). Recarga la página.' });
         }
 
         // Los resortes y los precios solo se sincronizan si llegó un layout
@@ -295,14 +313,15 @@ const updateMachine = async (req, res) => {
             console.error('Error enviando comandos MQTT a la máquina:', mqttError);
         }
 
-        res.json({ 
-            success: true, 
-            message: 'Máquina y planograma sincronizados automáticamente.', 
-            data: result.rows[0] 
+        res.json({
+            success: true,
+            message: 'Máquina y planograma sincronizados automáticamente.',
+            data: identidad.decorar(result.rows[0])
         });
 
     } catch (error) {
-        await client.query('ROLLBACK'); 
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.status) return res.status(error.status).json({ success: false, message: error.message });
         console.error('Error en la sincronización de la máquina:', error);
         res.status(500).json({ success: false, message: 'Fallo en BD: ' + error.message });
     } finally {
@@ -324,9 +343,30 @@ const createMachine = async (req, res) => {
        return res.status(404).json({ success: false, message: 'Usuario no encontrado en la base de datos.' });
     }
     
-    const id_dueno = userRes.rows[0].id; 
-    const machine_id = code || `TEMP_${Date.now()}`;
-    const safeCode = code || machine_id;
+    const id_dueno = userRes.rows[0].id;
+
+    // IDENTIDAD: solo el superadmin pone el ID del equipo (equipo_id, o "code" en la app anterior)
+    // y el código KMT (region_id -> el siguiente número libre de esa región, o numero_kmt).
+    // Si crea la máquina otro usuario, queda con ID provisional PEND-XXXXXX y sin código KMT.
+    const equipoPedido = identidad.limpiar(req.body.equipo_id !== undefined ? req.body.equipo_id : code);
+    const regionPedida = req.body.region_id;
+    let equipo = '';
+    let aviso = null;
+    let sa = null;
+    if (equipoPedido || (regionPedida !== undefined && regionPedida !== null && regionPedida !== '')) {
+      sa = await verificarSuperadmin(req);
+      if (!sa.ok) {
+        aviso = (await mensajeCodigoIgnorado(sa, user_email)) + ' La máquina quedó pendiente de código.';
+      } else if (equipoPedido) {
+        const problema = identidad.validarEquipo(equipoPedido);
+        if (problema) return res.status(400).json({ success: false, message: problema });
+        const ocupado = await identidad.equipoOcupado(pool, equipoPedido);
+        if (ocupado) return res.status(400).json({ success: false, message: `El equipo ${equipoPedido} ya está vinculado a otra máquina (${ocupado}).` });
+        equipo = equipoPedido;
+      }
+    }
+    const machine_id = equipo || await identidad.nuevoEquipoPendiente();
+    const safeCode = machine_id;
 
     // 🔥 BLINDAJE ABSOLUTO DEL JSON 🔥
     let layoutSeguro = '[]';
@@ -364,16 +404,41 @@ const createMachine = async (req, res) => {
       layoutSeguro
     ];
     
-    const result = await pool.query(insertQuery, values);
-    
+    const client = await pool.connect();
+    let fila, kmt = null;
+    try {
+      await client.query('BEGIN');
+      fila = (await client.query(insertQuery, values)).rows[0];
+      // Código KMT en la misma transacción: si el número ya está ocupado, no se crea nada
+      if (sa && sa.ok && regionPedida !== undefined && regionPedida !== null && regionPedida !== '') {
+        kmt = await identidad.asignarKMT(client, machine_id, regionPedida, req.body.numero_kmt);
+        fila = (await client.query('SELECT * FROM maquinas WHERE machine_id = $1', [machine_id])).rows[0];
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    if (kmt) {
+      await auditoria.registrar({ usuario: sa.email, accion: 'codigo_kmt_asignado', machine_id,
+        detalle: { anterior: null, nuevo: kmt.codigo, al_crear: true } });
+      fila.region_nombre = kmt.region.nombre;
+    }
+
     // 3. Le respondemos a React que todo salió perfecto
+    const data = identidad.decorar(fila);
     res.status(201).json({
       success: true,
       message: 'Máquina creada exitosamente',
-      data: result.rows[0]
+      data,
+      ...(aviso ? { codigo_ignorado: true, aviso } : {}),
+      ...(!data.equipo_pendiente ? { kymez: await identidad.estadoEnKymez(machine_id) } : {})
     });
     
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ success: false, message: error.message, ...(error.extra || {}) });
     console.error('Error al crear máquina en PostgreSQL:', error);
     if (error.code === '23505') {
       return res.status(400).json({ success: false, message: 'El código o MAC de esta máquina ya está registrado.' });

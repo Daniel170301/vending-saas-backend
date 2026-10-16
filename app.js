@@ -14,6 +14,8 @@ const clientRoutes = require('./routes/clientRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const proveedorRoutes = require('./routes/proveedorRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const superadminRoutes = require('./routes/superadminRoutes');
+const { version } = require('./package.json');
 const pool = require('./config/database');
 
 // === SERVICIOS EN SEGUNDO PLANO (CRON JOBS) ===
@@ -45,6 +47,7 @@ app.use('/api/clients', clientRoutes);
 app.use('/api/gastos', expenseRoutes);
 app.use('/api/proveedores', proveedorRoutes);
 app.use('/api/perfil', profileRoutes);
+app.use('/api/superadmin', superadminRoutes);   // entorno superadmin (exige su sesión)
 
 // Ruta base de prueba
 app.get('/', (req, res) => {
@@ -56,7 +59,7 @@ app.get('/salud', async (req, res) => {
   const t0 = Date.now();
   try {
     await pool.query('SELECT 1');
-    res.json({ ok: true, db_ms: Date.now() - t0, uptime_s: Math.round(process.uptime()) });
+    res.json({ ok: true, version, db_ms: Date.now() - t0, uptime_s: Math.round(process.uptime()) });
   } catch (e) {
     res.status(503).json({ ok: false, error: 'sin conexión a la base de datos' });
   }

@@ -1,5 +1,6 @@
 // controllers/inventoryController.js
 const pool = require('../config/database');
+const identidad = require('../services/identidadMaquina');
 const mqttService = require('../services/mqttService');
 const img = require('../utils/imagenes');
 const { columnaExiste } = require('../utils/esquema');
@@ -375,7 +376,8 @@ const resumenInventario = async (req, res) => {
     const superadmin = u.rol === 'superadmin';
 
     const { rows } = await pool.query(`
-      SELECT m.machine_id, COALESCE(m.name, m.machine_id) AS nombre,
+      SELECT m.machine_id, ${await identidad.sqlNombre('m')} AS nombre,
+             ${(await identidad.hayKMT()) ? 'm.codigo_kmt' : 'NULL::text'} AS codigo_kmt,
              COUNT(i.codigo_motor)::int AS resortes,
              COALESCE(SUM(i.stock), 0)::int AS unidades,
              COALESCE(SUM(i.capacidad), 0)::int AS capacidad,
@@ -391,8 +393,8 @@ const resumenInventario = async (req, res) => {
         ORDER BY pa.id DESC LIMIT 1
       ) pa ON true
       WHERE $1::boolean OR m.id_dueno::text = $2::text
-      GROUP BY m.machine_id, m.name
-      ORDER BY nombre`, [superadmin, String(u.id)]);
+      GROUP BY m.machine_id
+      ORDER BY ${(await identidad.hayKMT()) ? 'm.region_id NULLS LAST, m.numero_kmt NULLS LAST, ' : ''}lower(${await identidad.sqlNombre('m')})`, [superadmin, String(u.id)]);
 
     const totales = rows.reduce((t, r) => ({
       unidades: t.unidades + r.unidades, capacidad: t.capacidad + r.capacidad, faltantes: t.faltantes + r.faltantes,

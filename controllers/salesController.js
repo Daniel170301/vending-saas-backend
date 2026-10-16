@@ -1,5 +1,6 @@
 // controllers/salesController.js
 const pool = require('../config/database');
+const identidad = require('../services/identidadMaquina');
 const { rolDe } = require('../utils/usuarios');
 
 const confirmarDespacho = async (req, res) => {
@@ -57,6 +58,7 @@ const COSTO = `
 // =========================================================================
 const obtenerHistorialVentas = async (req, res) => {
   try {
+    const kmt = await identidad.hayKMT();
     const machine_id = req.params.machine_id || req.query.machine_id;
     const user_id = req.query.user_id || req.query.user || req.query.email;
 
@@ -93,7 +95,10 @@ const obtenerHistorialVentas = async (req, res) => {
 
     const query = `
       SELECT v.*,
-             m.name AS nombre_maquina${extraSelect},
+             COALESCE(${await identidad.sqlNombre('m')}, v.machine_id) AS nombre_maquina,
+             NULLIF(btrim(m.name), '') AS maquina_nombre,
+             ${kmt ? 'm.codigo_kmt' : 'NULL::text'} AS maquina_codigo,
+             NULLIF(btrim(m.matricula::text), '') AS maquina_matricula${extraSelect},
              COALESCE(p.unit_cost, 0) AS unit_cost,
              COALESCE(p.unit_cost, 0) AS costo
       FROM historial_ventas v

@@ -5,6 +5,7 @@
 const pool = require('../config/database');
 const { usuarioPorEmail } = require('../utils/usuarios');
 const resumenVentas = require('../services/resumenVentas');
+const identidad = require('../services/identidadMaquina');
 
 const cacheResumen = new Map();   // clave -> { cuerpo, vence }
 
@@ -86,6 +87,25 @@ const SQL_RAPIDO = `
 
 const ZONA_VALIDA = /^[A-Za-z][A-Za-z0-9_+\-/]{0,40}$/;
 
+// v3.3: el nombre de cada máquina sale igual que en el resto de la app (nombre, o su código KMT)
+// y "por_maquina" y "alertas" traen además el código KMT.
+async function conIdentidad(sql) {
+  const kmt = await identidad.hayKMT();
+  return sql
+    .split('COALESCE(name, machine_id) AS name').join(
+      `${await identidad.sqlNombre('maquinas')} AS name, ${kmt ? 'codigo_kmt' : 'NULL::text AS codigo_kmt'}`)
+    .split('SELECT i.machine_id, m.name AS maquina, i.codigo_motor,').join(
+      'SELECT i.machine_id, m.name AS maquina, m.codigo_kmt AS codigo, i.codigo_motor,')
+    .split('SELECT v.machine_id, m.name AS nombre, SUM(v.monto) AS total, SUM(v.unidades) AS ventas').join(
+      'SELECT v.machine_id, m.name AS nombre, m.codigo_kmt AS codigo, SUM(v.monto) AS total, SUM(v.unidades) AS ventas')
+    .split('GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 50').join('GROUP BY 1, 2, 3 ORDER BY 4 DESC LIMIT 50')
+    .split('SELECT machine_id, maquina AS nombre, SUM(monto) AS total, COUNT(*) AS ventas').join(
+      'SELECT machine_id, maquina AS nombre, codigo, SUM(monto) AS total, COUNT(*) AS ventas')
+    .split('v.machine_id, m.name AS maquina,\n').join('v.machine_id, m.name AS maquina, m.codigo_kmt AS codigo,\n')
+    .split("FROM ventas, lim WHERE f >= date_trunc('year', ahora) GROUP BY 1, 2) z),").join(
+      "FROM ventas, lim WHERE f >= date_trunc('year', ahora) GROUP BY 1, 2, 3) z),");
+}
+
 // Si historial_ventas.fecha NO tiene zona horaria, DEFAULT now() guarda la hora en la zona de
 // la BD (en Render: UTC). Se detecta sola; VENTAS_FECHA_ZONA la fuerza si hiciera falta.
 let esquemaFecha = null;
@@ -119,7 +139,7 @@ const obtenerResumen = async (req, res) => {
         res.set('Cache-Control', 'private, max-age=15');
         return res.json(hit.cuerpo);
       }
-      const { rows } = await pool.query(SQL_RAPIDO, [u.rol === 'superadmin', String(u.id), resumenVentas.ZONA, umbral]);
+      const { rows } = await pool.query(await conIdentidad(SQL_RAPIDO), [u.rol === 'superadmin', String(u.id), resumenVentas.ZONA, umbral]);
       const cuerpo = { success: true, zona_horaria: resumenVentas.ZONA, generado_en: new Date().toISOString(), ...rows[0].r };
       cacheResumen.set(clave, { cuerpo, vence: Date.now() + 15000 });
       if (cacheResumen.size > 2000) cacheResumen.clear();
@@ -196,7 +216,7 @@ const obtenerResumen = async (req, res) => {
           FROM mis)
       ) AS r`;
 
-    const { rows } = await pool.query(sql, [u.rol === 'superadmin', String(u.id), tz, umbral, ...(conZona ? [] : [zonaBD])]);
+    const { rows } = await pool.query(await conIdentidad(sql), [u.rol === 'superadmin', String(u.id), tz, umbral, ...(conZona ? [] : [zonaBD])]);
     res.set('Cache-Control', 'private, max-age=15');
     res.json({ success: true, zona_horaria: tz, generado_en: new Date().toISOString(), ...rows[0].r });
   } catch (error) {

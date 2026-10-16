@@ -58,6 +58,8 @@ async function instalar() {
       CREATE OR REPLACE FUNCTION qhapay_resumen_venta() RETURNS trigger LANGUAGE plpgsql AS $f$
       DECLARE d date; dueno text; m numeric; p text;
       BEGIN
+        -- Cambio de código de una máquina: mueve los totales de una sola vez (services/codigoMaquina.js)
+        IF current_setting('qhapay.sin_resumen', true) = 'on' THEN RETURN NULL; END IF;
         BEGIN
           IF TG_OP IN ('DELETE', 'UPDATE') THEN
             d := ${diaOld}; m := ${MONTO('OLD')}; p := ${PRODUCTO('OLD')};
@@ -144,6 +146,39 @@ async function llenar(cli, desdeDias) {
     GROUP BY 1, 2, 3`);
 }
 
+// Recalcula los totales de un rango de días locales (incluidos) para TODAS las máquinas.
+// Debe correr dentro de una transacción que ya bloqueó historial_ventas (SHARE ROW EXCLUSIVE).
+// Lo usa "mover datos sin máquina": esas ventas pudieron contarse antes con otro dueño.
+async function recalcularRango(cli, desdeDia, hastaDia) {
+  const dia = await exprDia(cli, 'v.fecha');
+  const base = `
+    SELECT v.machine_id, ${dia} AS dia, ${MONTO('v')} AS monto, ${PRODUCTO('v')} AS producto,
+           COALESCE(m.id_dueno::text, '') AS id_dueno
+    FROM historial_ventas v LEFT JOIN maquinas m ON m.machine_id = v.machine_id
+    WHERE v.fecha >= ($1::date - 1) AND v.fecha < ($2::date + 2)`;
+  await cli.query('DELETE FROM ventas_dia_maquina WHERE dia BETWEEN $1::date AND $2::date', [desdeDia, hastaDia]);
+  await cli.query('DELETE FROM ventas_dia_producto WHERE dia BETWEEN $1::date AND $2::date', [desdeDia, hastaDia]);
+  await cli.query(`
+    INSERT INTO ventas_dia_maquina (machine_id, dia, unidades, monto)
+    SELECT machine_id, dia, count(*), sum(monto) FROM (${base}) x
+    WHERE machine_id IS NOT NULL AND dia BETWEEN $1::date AND $2::date
+    GROUP BY 1, 2`, [desdeDia, hastaDia]);
+  await cli.query(`
+    INSERT INTO ventas_dia_producto (id_dueno, dia, producto, unidades, monto)
+    SELECT id_dueno, dia, producto, count(*), sum(monto) FROM (${base}) x
+    WHERE machine_id IS NOT NULL AND dia BETWEEN $1::date AND $2::date
+    GROUP BY 1, 2, 3`, [desdeDia, hastaDia]);
+  // Meses tocados: se rehacen desde el diario
+  await cli.query(`
+    DELETE FROM ventas_mes_maquina
+    WHERE mes BETWEEN date_trunc('month', $1::date)::date AND date_trunc('month', $2::date)::date`, [desdeDia, hastaDia]);
+  await cli.query(`
+    INSERT INTO ventas_mes_maquina (machine_id, mes, unidades, monto)
+    SELECT machine_id, date_trunc('month', dia)::date, SUM(unidades), SUM(monto) FROM ventas_dia_maquina
+    WHERE dia >= date_trunc('month', $1::date)::date AND dia < (date_trunc('month', $2::date) + interval '1 month')::date
+    GROUP BY 1, 2`, [desdeDia, hastaDia]);
+}
+
 // Sin instalar nada: activa la versión rápida si el trigger ya existe (MIGRAR_AL_INICIAR=false)
 async function detectar() {
   try {
@@ -171,4 +206,4 @@ async function revisar(dias = 3) {
   }
 }
 
-module.exports = { instalar, detectar, revisar, disponible, ZONA };
+module.exports = { instalar, detectar, revisar, recalcularRango, disponible, ZONA };

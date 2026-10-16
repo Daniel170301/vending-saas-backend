@@ -17,6 +17,12 @@ const login = async (req, res) => {
         const result = await pool.query(query, [email]);
         const user = result.rows[0];
 
+        // Las cuentas creadas con Google se guardan con la contraseña fija 'google_oauth'.
+        // Sin esto, cualquiera podía entrar a esas cuentas escribiendo esa palabra como contraseña.
+        if (user && user.password === 'google_oauth') {
+            return res.status(401).json({ success: false, message: "Esta cuenta se creó con Google. Entra con el botón de Google." });
+        }
+
         if (!user || user.password !== password) {
             return res.status(401).json({ success: false, message: "Correo o contraseña incorrectos" });
         }
