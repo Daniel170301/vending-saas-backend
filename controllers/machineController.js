@@ -5,6 +5,7 @@ const { rolDe } = require('../utils/usuarios');
 const { verificarSuperadmin, MENSAJES, ROLES_SUPERADMIN } = require('../utils/auth');
 const identidad = require('../services/identidadMaquina');
 const auditoria = require('../utils/auditoria');
+const { columnaExiste } = require('../utils/esquema');
 
 // Mensaje cuando se ignora un ID de equipo que no mandó el superadmin. Si quien guarda ES el
 // superadmin pero su sesión venció, se le dice eso; a los demás, que lo asigna el superadmin.
@@ -80,6 +81,7 @@ const getMachines = async (req, res) => {
                 m.numero_celular AS phone,
                 'online' AS status,
                 m.pago_al_dia,
+                ${(await columnaExiste('maquinas', 'mensaje_bloqueo')) ? 'm.mensaje_bloqueo, m.suspendida_en,' : ''}
                 m.macrodroid_activo,
                 m.brand, m.model, m.plate, m.coin_base, m.coin_current,
                 m.coin_brand, m.coin_plate, m.bill_enabled, m.bill_brand,
@@ -481,14 +483,20 @@ const deleteMachine = async (req, res) => {
 const updateMachineSettings = async (req, res) => {
     try {
         const { id } = req.params;
-        const { pago_al_dia } = req.body; 
-        
-        // Solo actualizamos el estado del candado en la base de datos
-        await pool.query(
-            'UPDATE maquinas SET pago_al_dia = $1 WHERE machine_id = $2',
-            [pago_al_dia, id]
-        );
-        
+        const activa = !['false', '0', 'no'].includes(String(req.body.pago_al_dia).trim().toLowerCase());
+        const conMensaje = await columnaExiste('maquinas', 'mensaje_bloqueo');
+        const mensaje = identidad.limpiar(req.body.mensaje_bloqueo).slice(0, 200) || null;
+        const r = await pool.query(
+            conMensaje
+              ? `UPDATE maquinas SET pago_al_dia = $1,
+                   mensaje_bloqueo = CASE WHEN $4::boolean THEN NULL ELSE COALESCE($3, mensaje_bloqueo) END,
+                   suspendida_en = CASE WHEN $4::boolean THEN NULL ELSE COALESCE(suspendida_en, now()) END
+                 WHERE machine_id = $2 RETURNING machine_id`
+              : 'UPDATE maquinas SET pago_al_dia = $1 WHERE machine_id = $2 RETURNING machine_id',
+            conMensaje ? [activa, id, mensaje, activa] : [activa, id]);
+        if (!r.rowCount) return res.status(404).json({ success: false, message: 'Máquina no encontrada' });
+        await auditoria.registrar({ usuario: req.superadmin && req.superadmin.email, accion: activa ? 'maquina_reactivada' : 'maquina_suspendida',
+            machine_id: id, detalle: { motivo: mensaje } });
         res.json({ success: true, message: 'Estado de la máquina guardado correctamente' });
     } catch (error) {
         console.error('Error guardando ajustes:', error);

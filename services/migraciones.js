@@ -41,6 +41,22 @@ const SUPERADMIN = [
       creado_en   timestamptz NOT NULL DEFAULT now())`],
   ['índice auditoría por máquina', 'CREATE INDEX IF NOT EXISTS idx_auditoria_maquina ON auditoria_superadmin (machine_id, creado_en DESC)'],
   ['índice auditoría por fecha', 'CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria_superadmin (creado_en DESC)'],
+  // v3.4 · suspensión por falta de pago y mensualidad de cada cliente (migraciones/003_clientes.sql)
+  ['columna mensaje_bloqueo', 'ALTER TABLE maquinas ADD COLUMN IF NOT EXISTS mensaje_bloqueo text'],
+  ['columna suspendida_en', 'ALTER TABLE maquinas ADD COLUMN IF NOT EXISTS suspendida_en timestamptz'],
+  ['columna mensualidad', 'ALTER TABLE usuarios_duenos ADD COLUMN IF NOT EXISTS mensualidad numeric'],
+  ['columna pagado_hasta', 'ALTER TABLE usuarios_duenos ADD COLUMN IF NOT EXISTS pagado_hasta date'],
+  ['tabla pagos_mensualidad', `CREATE TABLE IF NOT EXISTS pagos_mensualidad (
+      id              bigserial PRIMARY KEY,
+      id_dueno        text NOT NULL,
+      monto           numeric,
+      meses           integer NOT NULL,
+      pagado_desde    date,
+      pagado_hasta    date NOT NULL,
+      nota            text,
+      registrado_por  text,
+      creado_en       timestamptz NOT NULL DEFAULT now())`],
+  ['índice pagos por cliente', 'CREATE INDEX IF NOT EXISTS idx_pagos_mensualidad_dueno ON pagos_mensualidad (id_dueno, creado_en DESC)'],
 ];
 
 async function paso(nombre, sql) {

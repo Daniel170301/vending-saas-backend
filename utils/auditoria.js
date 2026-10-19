@@ -31,6 +31,13 @@ const ACCIONES = {
   cuenta_yape_creada:    'Creó una cuenta Yape',
   cuenta_yape_editada:   'Editó una cuenta Yape',
   datos_movidos:         'Movió datos sin máquina',
+  mensualidad_editada:   'Editó la mensualidad',
+  pago_mensualidad:      'Registró un pago de mensualidad',
+  cliente_suspendido:    'Suspendió al cliente',
+  cliente_reactivado:    'Reactivó al cliente',
+  maquina_suspendida:    'Suspendió la máquina',
+  maquina_reactivada:    'Reactivó la máquina',
+  entro_como_cliente:    'Entró a la cuenta del cliente (soporte)',
 };
 
 module.exports = { registrar, ACCIONES };

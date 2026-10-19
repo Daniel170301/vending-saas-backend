@@ -6,6 +6,7 @@ const { soloSuperadmin } = require('../utils/auth');
 const flota = require('../controllers/superadminFlotaController');
 const yape = require('../controllers/superadminYapeController');
 const catalogo = require('../controllers/superadminCatalogoController');
+const clientes = require('../controllers/superadminClientesController');
 
 router.use(soloSuperadmin);
 
@@ -33,6 +34,15 @@ router.get('/incidencias', yape.listarIncidencias);
 router.post('/incidencias/resolver', yape.resolverIncidencias);
 router.get('/sincronizacion', yape.sincronizacion);
 router.post('/sincronizacion/reintentar', yape.reintentarSincronizacion);
+
+// Clientes: mensualidad, suspensión y soporte
+router.get('/clientes', clientes.listarClientes);
+router.get('/clientes/:id', clientes.fichaCliente);
+router.put('/clientes/:id/mensualidad', clientes.guardarMensualidad);
+router.post('/clientes/:id/pagos', clientes.registrarPago);
+router.put('/clientes/:id/suspension', clientes.suspenderCliente);
+router.post('/clientes/:id/entrar', clientes.entrarComoCliente);
+router.put('/maquinas/:id/suspension', clientes.suspenderMaquina);
 
 // Catálogos
 router.get('/regiones', catalogo.listarRegiones);
