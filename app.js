@@ -48,7 +48,7 @@ app.use('/api/gastos', expenseRoutes);
 app.use('/api/proveedores', proveedorRoutes);
 app.use('/api/perfil', profileRoutes);
 app.use('/api/superadmin', superadminRoutes);   // entorno superadmin (exige su sesión)
-
+app.use('/api/company', require('./routes/companyRoutes')(pool));   // Mi empresa
 // Ruta base de prueba
 app.get('/', (req, res) => {
   res.send('Servidor SaaS de Máquinas Expendedoras 100% Operativo (Arquitectura Modular)');
