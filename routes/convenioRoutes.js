@@ -10,6 +10,8 @@
 //       PUT /api/convenio/:machine_id/precios
 //           { items: [{ codigo_motor, precio_regular, precio_colaborador }] }
 //           precio_regular vacío o null = esa selección sin convenio (se borra)
+//       ORDEN DEL PDF (opcional): cada item puede traer "orden" (1, 2, 3...). Es solo el
+//       orden en que se muestran en el convenio y su PDF; NO cambia codigo_motor ni ventas.
 //
 //  2) VENTAS DE PRUEBA (Yapes de demostración que no deben contar en los reportes)
 //       PATCH /api/convenio/ventas/prueba        { ids: [123, 124], es_prueba: true }
@@ -49,6 +51,14 @@ async function asegurarEsquema() {
       PRIMARY KEY (machine_id, codigo_motor)
     )`);
   await pool.query(`ALTER TABLE precios_regulares ADD COLUMN IF NOT EXISTS precio_colaborador NUMERIC(10,2)`);
+  // Orden de presentación (aparte, para que también valga en selecciones sin convenio)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS convenio_orden (
+      machine_id   VARCHAR(50) NOT NULL,
+      codigo_motor VARCHAR(10) NOT NULL,
+      orden        INTEGER     NOT NULL,
+      PRIMARY KEY (machine_id, codigo_motor)
+    )`);
   esquemaListo = true;
 }
 
@@ -108,11 +118,12 @@ router.get('/:machine_id/precios', ruta(async (req, res, usr) => {
   // Todas las selecciones del planograma, con su precio regular si ya tiene
   const r = await pool.query(
     `SELECT i.codigo_motor, i.nombre_producto, i.precio AS precio_maquina, pr.precio_regular,
-            pr.precio_colaborador, pr.actualizado_en
+            pr.precio_colaborador, pr.actualizado_en, co.orden
        FROM inventario i
        LEFT JOIN precios_regulares pr ON pr.machine_id = i.machine_id AND pr.codigo_motor = i.codigo_motor
+       LEFT JOIN convenio_orden co ON co.machine_id = i.machine_id AND co.codigo_motor = i.codigo_motor
       WHERE i.machine_id = $1
-      ORDER BY CASE WHEN i.codigo_motor ~ '^[0-9]+$' THEN i.codigo_motor::int ELSE 999999 END, i.codigo_motor`, [id]);
+      ORDER BY co.orden NULLS LAST, CASE WHEN i.codigo_motor ~ '^[0-9]+$' THEN i.codigo_motor::int ELSE 999999 END, i.codigo_motor`, [id]);
   const items = r.rows.map((x) => ({
     codigo_motor: x.codigo_motor,
     nombre_producto: x.nombre_producto,
@@ -123,6 +134,7 @@ router.get('/:machine_id/precios', ruta(async (req, res, usr) => {
       ? Math.round((Number(x.precio_regular) - Number(x.precio_colaborador)) * 100) / 100 : null,
     actualizado_en: x.actualizado_en,
   }));
+  items.forEach((x, i) => { x.orden = i + 1; });   // posición en la lista (1, 2, 3...)
   res.json({ machine_id: id, convenio_activo: items.some((x) => x.precio_regular !== null), items });
 }));
 
@@ -135,10 +147,15 @@ router.put('/:machine_id/precios', ruta(async (req, res, usr) => {
   const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
   if (!items || items.length > 300) return res.status(400).json({ success: false, message: 'Lista de precios no válida' });
 
-  const guardar = [], borrar = [];
+  const guardar = [], borrar = [], ordenes = [];
   for (const it of items) {
     const motor = String((it && it.codigo_motor) ?? '').trim();
     if (!motor || motor.length > 10) return res.status(400).json({ success: false, message: 'Selección no válida' });
+    if (it.orden !== undefined && it.orden !== null && it.orden !== '') {
+      const o = Number(it.orden);
+      if (!Number.isInteger(o) || o < 1 || o > 1000) return res.status(400).json({ success: false, message: `Orden no válido en la selección ${motor}` });
+      ordenes.push([motor, o]);
+    }
     const v = it.precio_regular;
     if (v === null || v === undefined || v === '') { borrar.push(motor); continue; }
     const p = Math.round(Number(v) * 100) / 100;
@@ -171,6 +188,12 @@ router.put('/:machine_id/precios', ruta(async (req, res, usr) => {
     }
     if (borrar.length) {
       await cli.query('DELETE FROM precios_regulares WHERE machine_id = $1 AND codigo_motor = ANY($2)', [id, borrar]);
+    }
+    if (ordenes.length) {       // llegó un orden nuevo: reemplaza el anterior de esta máquina
+      await cli.query('DELETE FROM convenio_orden WHERE machine_id = $1', [id]);
+      for (const [motor, o] of ordenes) {
+        await cli.query('INSERT INTO convenio_orden (machine_id, codigo_motor, orden) VALUES ($1, $2, $3)', [id, motor, o]);
+      }
     }
     await cli.query('COMMIT');
   } catch (e) {
