@@ -15,7 +15,12 @@
 //
 //  2) VENTAS DE PRUEBA (Yapes de demostración que no deben contar en los reportes)
 //       PATCH /api/convenio/ventas/prueba        { ids: [123, 124], es_prueba: true }
-//     La lista de ventas (/api/ventas) ya devuelve la columna es_prueba (usa v.*).
+//
+//  3) DEVOLUCIONES (se le devolvió el dinero al cliente; no cuenta en totales ni PDF)
+//       PATCH /api/convenio/ventas/devolucion    { ids: [123], es_devolucion: true, motivo: "No sirvió" }
+//     Solo registra la devolución en QhaPay: el dinero se devuelve aparte (app Yape / caja).
+//
+//  La lista de ventas (/api/ventas) ya devuelve es_prueba, es_devolucion y devolucion_motivo (usa v.*).
 //
 //  Seguridad: TODAS las rutas exigen la sesión (Authorization: Bearer <token>) y solo
 //  dejan tocar máquinas del dueño de esa sesión (el superadmin puede todas).
@@ -40,6 +45,12 @@ async function asegurarEsquema() {
     await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS es_prueba BOOLEAN NOT NULL DEFAULT false`);
     await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS prueba_marcada_por VARCHAR(100)`);
     await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS prueba_marcada_en TIMESTAMP`);
+  }
+  if (!(await columnaExiste('historial_ventas', 'es_devolucion'))) {
+    await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS es_devolucion BOOLEAN NOT NULL DEFAULT false`);
+    await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS devolucion_motivo VARCHAR(200)`);
+    await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS devolucion_marcada_por VARCHAR(100)`);
+    await pool.query(`ALTER TABLE historial_ventas ADD COLUMN IF NOT EXISTS devolucion_marcada_en TIMESTAMP`);
   }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS precios_regulares (
@@ -205,19 +216,26 @@ router.put('/:machine_id/precios', ruta(async (req, res, usr) => {
   res.json({ success: true, message: 'Precios del convenio guardados', guardados: guardar.length, quitados: borrar.length });
 }));
 
-// ---------- 2) Ventas de prueba ----------
-router.patch('/ventas/prueba', ruta(async (req, res, usr) => {
+// ---------- 2) y 3) Ventas de prueba y devoluciones ----------
+// Revisa la lista de ids y que todas las ventas sean de máquinas de esta sesión
+async function ventasPropias(req, res, usr) {
   const b = req.body || {};
   const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map((x) => parseInt(x, 10)).filter((x) => x > 0))] : [];
-  if (!ids.length || ids.length > 500) return res.status(400).json({ success: false, message: 'Elige entre 1 y 500 ventas' });
-  if (typeof b.es_prueba !== 'boolean') return res.status(400).json({ success: false, message: 'Falta es_prueba (true o false)' });
-
+  if (!ids.length || ids.length > 500) { res.status(400).json({ success: false, message: 'Elige entre 1 y 500 ventas' }); return null; }
   const v = await pool.query('SELECT id, machine_id FROM historial_ventas WHERE id = ANY($1)', [ids]);
-  if (v.rowCount !== ids.length) return res.status(404).json({ success: false, message: 'Alguna venta no existe' });
+  if (v.rowCount !== ids.length) { res.status(404).json({ success: false, message: 'Alguna venta no existe' }); return null; }
   const permitidas = await maquinasPermitidas(usr, [...new Set(v.rows.map((x) => x.machine_id))]);
   if (v.rows.some((x) => !permitidas.has(x.machine_id))) {
-    return res.status(403).json({ success: false, message: 'Alguna venta es de una máquina que no es tuya' });
+    res.status(403).json({ success: false, message: 'Alguna venta es de una máquina que no es tuya' }); return null;
   }
+  return ids;
+}
+
+router.patch('/ventas/prueba', ruta(async (req, res, usr) => {
+  const b = req.body || {};
+  if (typeof b.es_prueba !== 'boolean') return res.status(400).json({ success: false, message: 'Falta es_prueba (true o false)' });
+  const ids = await ventasPropias(req, res, usr);
+  if (!ids) return;
   const r = await pool.query(
     `UPDATE historial_ventas
         SET es_prueba = $2,
@@ -226,6 +244,23 @@ router.patch('/ventas/prueba', ruta(async (req, res, usr) => {
       WHERE id = ANY($1)
       RETURNING id, es_prueba`, [ids, b.es_prueba, usr.email]);
   res.json({ success: true, message: b.es_prueba ? 'Marcadas como prueba' : 'Ya no son de prueba', actualizadas: r.rowCount, ventas: r.rows });
+}));
+
+router.patch('/ventas/devolucion', ruta(async (req, res, usr) => {
+  const b = req.body || {};
+  if (typeof b.es_devolucion !== 'boolean') return res.status(400).json({ success: false, message: 'Falta es_devolucion (true o false)' });
+  const motivo = b.es_devolucion && b.motivo != null ? String(b.motivo).trim().slice(0, 200) || null : null;
+  const ids = await ventasPropias(req, res, usr);
+  if (!ids) return;
+  const r = await pool.query(
+    `UPDATE historial_ventas
+        SET es_devolucion = $2,
+            devolucion_motivo      = CASE WHEN $2 THEN $4 ELSE NULL END,
+            devolucion_marcada_por = CASE WHEN $2 THEN $3 ELSE NULL END,
+            devolucion_marcada_en  = CASE WHEN $2 THEN now() ELSE NULL END
+      WHERE id = ANY($1)
+      RETURNING id, es_devolucion, devolucion_motivo`, [ids, b.es_devolucion, usr.email, motivo]);
+  res.json({ success: true, message: b.es_devolucion ? 'Devolución registrada' : 'Devolución anulada', actualizadas: r.rowCount, ventas: r.rows });
 }));
 
 module.exports = router;
