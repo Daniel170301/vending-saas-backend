@@ -2,11 +2,14 @@
 // ============================================================================
 //  QhaPay · Convenios de subsidio y ventas de prueba
 // ----------------------------------------------------------------------------
-//  1) PRECIOS REGULARES por máquina (convenio: el colaborador paga lo que cobra la
-//     máquina y la empresa cliente asume la diferencia hasta el precio regular).
+//  1) PRECIOS DEL CONVENIO por máquina y selección:
+//       precio_regular     = lo que vale la bebida (lo pone el operador)
+//       precio_colaborador = lo que paga el colaborador en la máquina
+//       diferencia que asume la empresa cliente = precio_regular - precio_colaborador
 //       GET /api/convenio/:machine_id/precios
-//       PUT /api/convenio/:machine_id/precios   { items: [{ codigo_motor, precio_regular }] }
-//           precio_regular vacío o null = ese producto sin precio regular (se borra)
+//       PUT /api/convenio/:machine_id/precios
+//           { items: [{ codigo_motor, precio_regular, precio_colaborador }] }
+//           precio_regular vacío o null = esa selección sin convenio (se borra)
 //
 //  2) VENTAS DE PRUEBA (Yapes de demostración que no deben contar en los reportes)
 //       PATCH /api/convenio/ventas/prueba        { ids: [123, 124], es_prueba: true }
@@ -45,6 +48,7 @@ async function asegurarEsquema() {
       actualizado_en  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (machine_id, codigo_motor)
     )`);
+  await pool.query(`ALTER TABLE precios_regulares ADD COLUMN IF NOT EXISTS precio_colaborador NUMERIC(10,2)`);
   esquemaListo = true;
 }
 
@@ -103,7 +107,8 @@ router.get('/:machine_id/precios', ruta(async (req, res, usr) => {
   }
   // Todas las selecciones del planograma, con su precio regular si ya tiene
   const r = await pool.query(
-    `SELECT i.codigo_motor, i.nombre_producto, i.precio AS precio_maquina, pr.precio_regular, pr.actualizado_en
+    `SELECT i.codigo_motor, i.nombre_producto, i.precio AS precio_maquina, pr.precio_regular,
+            pr.precio_colaborador, pr.actualizado_en
        FROM inventario i
        LEFT JOIN precios_regulares pr ON pr.machine_id = i.machine_id AND pr.codigo_motor = i.codigo_motor
       WHERE i.machine_id = $1
@@ -113,6 +118,9 @@ router.get('/:machine_id/precios', ruta(async (req, res, usr) => {
     nombre_producto: x.nombre_producto,
     precio_maquina: x.precio_maquina === null ? null : Number(x.precio_maquina),
     precio_regular: x.precio_regular === null ? null : Number(x.precio_regular),
+    precio_colaborador: x.precio_colaborador === null ? null : Number(x.precio_colaborador),
+    diferencia: x.precio_regular !== null && x.precio_colaborador !== null
+      ? Math.round((Number(x.precio_regular) - Number(x.precio_colaborador)) * 100) / 100 : null,
     actualizado_en: x.actualizado_en,
   }));
   res.json({ machine_id: id, convenio_activo: items.some((x) => x.precio_regular !== null), items });
@@ -135,21 +143,31 @@ router.put('/:machine_id/precios', ruta(async (req, res, usr) => {
     if (v === null || v === undefined || v === '') { borrar.push(motor); continue; }
     const p = Math.round(Number(v) * 100) / 100;
     if (!Number.isFinite(p) || p <= 0 || p > 1000) {
-      return res.status(400).json({ success: false, message: `Precio no válido en la selección ${motor}` });
+      return res.status(400).json({ success: false, message: `Precio regular no válido en la selección ${motor}` });
     }
-    guardar.push([motor, p]);
+    const vc = it.precio_colaborador;
+    let c = null;
+    if (!(vc === null || vc === undefined || vc === '')) {
+      c = Math.round(Number(vc) * 100) / 100;
+      if (!Number.isFinite(c) || c < 0 || c > p) {
+        return res.status(400).json({ success: false,
+          message: `En la selección ${motor}, lo que paga el colaborador debe estar entre S/ 0 y el precio regular` });
+      }
+    }
+    guardar.push([motor, p, c]);
   }
 
   const cli = await pool.connect();
   try {
     await cli.query('BEGIN');
-    for (const [motor, p] of guardar) {
+    for (const [motor, p, c] of guardar) {
       await cli.query(
-        `INSERT INTO precios_regulares (machine_id, codigo_motor, precio_regular, actualizado_por, actualizado_en)
-         VALUES ($1, $2, $3, $4, now())
+        `INSERT INTO precios_regulares (machine_id, codigo_motor, precio_regular, precio_colaborador, actualizado_por, actualizado_en)
+         VALUES ($1, $2, $3, $4, $5, now())
          ON CONFLICT (machine_id, codigo_motor) DO UPDATE
-           SET precio_regular = EXCLUDED.precio_regular, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
-        [id, motor, p, usr.email]);
+           SET precio_regular = EXCLUDED.precio_regular, precio_colaborador = EXCLUDED.precio_colaborador,
+               actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
+        [id, motor, p, c, usr.email]);
     }
     if (borrar.length) {
       await cli.query('DELETE FROM precios_regulares WHERE machine_id = $1 AND codigo_motor = ANY($2)', [id, borrar]);
@@ -161,7 +179,7 @@ router.put('/:machine_id/precios', ruta(async (req, res, usr) => {
   } finally {
     cli.release();
   }
-  res.json({ success: true, message: 'Precios regulares guardados', guardados: guardar.length, quitados: borrar.length });
+  res.json({ success: true, message: 'Precios del convenio guardados', guardados: guardar.length, quitados: borrar.length });
 }));
 
 // ---------- 2) Ventas de prueba ----------
