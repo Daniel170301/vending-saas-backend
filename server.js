@@ -49,6 +49,13 @@ server.listen(PORT, () => {
   console.log(`Servidor SaaS corriendo en el puerto ${PORT}`);
   // Índices y columna de versión de fotos (en segundo plano, no retrasa el arranque)
   require('./services/migraciones').migrar()
+    .then(() => require('./services/hashearClaves').hashearPendientes()   // v3.5: contraseñas con hash
+      .catch((e) => console.error('[claves]', e.message)))
+    .then(() => Promise.all([                                              // v3.6: tablas nuevas
+      require('./utils/operarios').asegurarTablas(),
+      require('./services/asistente').asegurarTabla(),
+      require('./utils/clientesDueno').asegurar(),
+    ]).catch((e) => console.error('[v3.6] tablas:', e.message)))
     .then(() => {
       if (process.env.OPTIMIZAR_IMAGENES_AL_INICIAR === 'true') {
         return require('./services/optimizarImagenes').optimizarImagenes();

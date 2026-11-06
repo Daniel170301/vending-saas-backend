@@ -112,6 +112,8 @@ const crearProductoAlmacen = async (req, res) => {
     } = req.body;
 
     let finalIdDueno = id_dueno;
+    // v3.5: con sesión, el producto siempre es del dueño de la sesión (el superadmin puede elegir)
+    if (req.usuario && !req.usuario.superadmin) finalIdDueno = req.usuario.id;
     if (!finalIdDueno && user_email) {
       const u = await usuarioPorEmail(user_email);
       if (u) finalIdDueno = u.id;

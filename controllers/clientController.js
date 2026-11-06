@@ -1,5 +1,7 @@
 // controllers/clientController.js
 const pool = require('../config/database');
+const clave = require('../utils/clave');
+const clientesDueno = require('../utils/clientesDueno');
 
 // 1. Crear Cliente (Crea el Usuario y el Negocio al mismo tiempo)
 const createClient = async (req, res) => {
@@ -20,6 +22,7 @@ const createClient = async (req, res) => {
             return res.status(400).json({ success: false, message: 'El nombre y el correo son obligatorios' });
         }
 
+        await clientesDueno.asegurar();
         await client.query('BEGIN');
 
         // A. Buscamos si el correo ya existe en usuarios_duenos
@@ -31,23 +34,26 @@ const createClient = async (req, res) => {
             id_usuario = checkUser.rows[0].id; 
         } else {
             // Si no existe, creamos la cuenta de acceso nueva
+            // v3.5: la contraseña inicial (su número de documento) se guarda con hash
             const defaultPassword = numero_documento || 'QhaPay2026'; // Contraseña por defecto
             const newUser = await client.query(`
                 INSERT INTO usuarios_duenos (nombre, email, password, rol) 
                 VALUES ($1, $2, $3, 'cliente') 
                 RETURNING id;
-            `, [nombre_razon_social, correo_electronico, defaultPassword]);
+            `, [nombre_razon_social, correo_electronico, await clave.hashear(String(defaultPassword))]);
             
             id_usuario = newUser.rows[0].id;
         }
 
         // B. Creamos el Negocio en empresas_clientes y lo enlazamos al id_usuario
+        // v3.5: se guarda quién creó el cliente (solo él y el superadmin lo ven)
         const newBusiness = await client.query(`
             INSERT INTO empresas_clientes 
-            (id_usuario, razon_social, nombre_comercial, tipo_documento, numero_documento, telefono, email_contacto, direccion, notas) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+            (id_usuario, razon_social, nombre_comercial, tipo_documento, numero_documento, telefono, email_contacto, direccion, notas, id_dueno) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
             RETURNING *;
-        `, [id_usuario, nombre_razon_social, empresa_tienda, tipo_documento, numero_documento, telefono, correo_electronico, direccion, notas]);
+        `, [id_usuario, nombre_razon_social, empresa_tienda, tipo_documento, numero_documento, telefono, correo_electronico, direccion, notas,
+            req.usuario ? req.usuario.id : null]);
 
         await client.query('COMMIT');
         res.json({ success: true, message: 'Cliente registrado con éxito', cliente: newBusiness.rows[0] });
@@ -64,13 +70,19 @@ const createClient = async (req, res) => {
 // 2. Obtener todos los Negocios para la Tabla
 const getClients = async (req, res) => {
     try {
+        // v3.5: antes devolvía los clientes de TODOS los dueños. Ahora solo los propios
+        // (creados por él o puestos en una de sus máquinas); el superadmin ve todos.
+        await clientesDueno.asegurar();
+        const todos = !req.usuario || req.usuario.superadmin;
         const query = `
             SELECT c.*, u.email as email_dueno, u.nombre as nombre_dueno
             FROM empresas_clientes c
             JOIN usuarios_duenos u ON c.id_usuario = u.id
+            ${todos ? '' : `WHERE c.id_dueno = $1 OR EXISTS (SELECT 1 FROM maquinas m
+                  WHERE m.id_cliente_punto::text = c.id_usuario::text AND m.id_dueno::text = $1)`}
             ORDER BY c.id DESC;
         `;
-        const result = await pool.query(query);
+        const result = await pool.query(query, todos ? [] : [req.usuario.id]);
         res.json({ success: true, clientes: result.rows, data: result.rows });
     } catch (error) {
         console.error('Error al obtener clientes:', error);
@@ -162,7 +174,7 @@ const deleteClient = async (req, res) => {
         res.json({ success: true, message: 'Cliente eliminado con éxito' });
     } catch (error) {
         console.error('Error al eliminar cliente:', error);
-        res.status(500).json({ success: false, message: 'Error en BD al eliminar: ' + error.message });
+        res.status(500).json({ success: false, message: 'Error en BD al eliminar' });
     }
 };
 

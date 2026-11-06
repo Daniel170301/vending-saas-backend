@@ -2,6 +2,10 @@
 const express = require('express');
 const router = express.Router();
 
+// v3.5: los IDs de la dirección deben ser del dueño de la sesión (si no, 404)
+const propiedad = require('../utils/propiedad');
+router.param('id', propiedad.cliente);
+
 // Importamos TODAS las funciones del controlador, incluyendo updateClient
 const { createClient, getClients, updateClientStatus, updateClient, deleteClient } = require('../controllers/clientController');
 

@@ -11,7 +11,7 @@ async function usuarioPorEmail(email) {
   if (!clave) return null;
   const hit = cache.get(clave);
   if (hit && hit.vence > Date.now()) return hit.valor;
-  const { rows } = await pool.query('SELECT id, rol FROM usuarios_duenos WHERE lower(email) = $1 LIMIT 1', [clave]);
+  const { rows } = await pool.query('SELECT id, rol FROM usuarios_duenos WHERE lower(email) = $1 ORDER BY id LIMIT 1', [clave]);
   const valor = rows[0] ? { id: rows[0].id, rol: String(rows[0].rol || 'dueno').toLowerCase() } : null;
   cache.set(clave, { valor, vence: Date.now() + TTL_MS });
   if (cache.size > 5000) cache.clear();

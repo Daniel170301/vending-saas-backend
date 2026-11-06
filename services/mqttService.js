@@ -1,4 +1,23 @@
 // services/mqttService.js
+// Broker PÚBLICO broker.hivemq.com (sin usuario ni clave), del sistema antiguo (tópicos
+// jaimez/expendedora/...). Lo usan las máquinas con equipo ESP32 v1, por ejemplo Snakky Becall:
+//   MacroDroid → /api/webhook/yape/<MAC> → aquí se publica PAGO:monto → la máquina vende
+//   → la máquina publica VENTA:<motor> → aquí se descuenta el stock y se guarda la venta.
+// Las placas KYMEZ actuales NO lo usan (hablan con kymez-pagos por HiveMQ Cloud).
+//
+// v3.6 · Encendido por defecto (como siempre). Para apagarlo cuando ya no tengas máquinas con el
+// equipo antiguo: MQTT_LEGADO=no en Render.
+if (String(process.env.MQTT_LEGADO || '').trim().toLowerCase() === 'no') {
+    const nada = (que) => (...a) => console.log(`[MQTT legado apagado] no se envió ${que} a ${a[0]}`);
+    console.log('[MQTT] broker público antiguo apagado (MQTT_LEGADO=no)');
+    module.exports = {
+        enviarComandoPrecio: nada('el precio'),
+        enviarComandoPago: nada('el pago'),
+        publicarMensaje: nada('el mensaje'),
+        apagado: true,
+    };
+    return;
+}
 const mqtt = require('mqtt');
 const pool = require('../config/database'); // <-- ¡ESTA ES LA LÍNEA QUE FALTA!
 // Conectamos al broker

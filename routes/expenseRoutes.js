@@ -1,6 +1,12 @@
 const express = require('express');
 const router = express.Router();
 
+// v3.5: los IDs de la dirección deben ser del dueño de la sesión (si no, 404)
+const propiedad = require('../utils/propiedad');
+router.param('id', propiedad.gasto);
+router.param('id_transaccion', propiedad.compra);
+router.param('id_detalle', propiedad.detalleCompra);
+
 // Importamos TODAS las funciones que creamos en el controlador, incluyendo las nuevas
 const { 
     registerPurchase, 

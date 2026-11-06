@@ -62,4 +62,29 @@ async function soloSuperadmin(req, res, next) {
   }
 }
 
-module.exports = { verificarSuperadmin, soloSuperadmin, MENSAJES, ROLES_SUPERADMIN };
+// Crea el token de sesión. Ya no existe una clave "de respaldo" escrita en el código: sin
+// JWT_SECRET en Render no se puede iniciar sesión (antes cualquiera podía fabricar tokens con ella).
+function firmarToken(user, expiresIn = '12h') {
+  if (!SECRETO) {
+    const e = new Error(MENSAJES.sin_configurar);
+    e.status = 503;
+    throw e;
+  }
+  return jwt.sign(
+    { id: user.id, email: String(user.email || '').toLowerCase(), rol: user.rol, nombre: user.nombre },
+    SECRETO, { algorithm: 'HS256', expiresIn });
+}
+
+// v3.6 · Token de un operario (cuenta aparte, sin correo). El dueño al que está vinculado se
+// busca en cada petición, así que si el dueño lo quita o lo pausa, deja de valer al instante.
+function firmarTokenOperario(op, expiresIn = '30d') {
+  if (!SECRETO) {
+    const e = new Error(MENSAJES.sin_configurar);
+    e.status = 503;
+    throw e;
+  }
+  return jwt.sign({ op: op.id, usuario: op.usuario, rol: 'operario', nombre: op.nombre || op.usuario },
+    SECRETO, { algorithm: 'HS256', expiresIn });
+}
+
+module.exports = { verificarSuperadmin, soloSuperadmin, leerToken, firmarToken, firmarTokenOperario, MENSAJES, ROLES_SUPERADMIN };

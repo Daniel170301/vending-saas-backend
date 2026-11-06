@@ -1,6 +1,10 @@
 // routes/salesRoutes.js
 const express = require('express');
 const router = express.Router();
+
+// v3.5: los IDs de la dirección deben ser del dueño de la sesión (si no, 404)
+const propiedad = require('../utils/propiedad');
+router.param('machine_id', propiedad.maquina);
 const salesController = require('../controllers/salesController');
 
 // 1. PUERTA GLOBAL: Cuando Lovable pide todas las ventas (/api/ventas?email=...)
@@ -10,6 +14,8 @@ router.get('/', salesController.obtenerHistorialVentas);
 router.get('/:machine_id', salesController.obtenerHistorialVentas);
 
 // 3. Ruta para confirmar el despacho físico y registrar la venta (dejamos la tuya intacta)
-router.post('/confirm-dispense/:machine_id', salesController.confirmarDespacho);
+// Lo llaman equipos antiguos (sin sesión, como siempre); v3.6: solo máquinas antiguas registradas
+const { soloEquipoLegado } = require('../utils/equipoLegado');
+router.post('/confirm-dispense/:machine_id', soloEquipoLegado, salesController.confirmarDespacho);
 
 module.exports = router;

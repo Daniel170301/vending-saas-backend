@@ -1,6 +1,11 @@
 // routes/warehouseRoutes.js
 const express = require('express');
 const router = express.Router();
+
+// v3.5: los IDs de la dirección deben ser del dueño de la sesión (si no, 404)
+const propiedad = require('../utils/propiedad');
+router.param('machine_id', propiedad.maquina);
+router.param('id', propiedad.producto);
 const warehouseController = require('../controllers/warehouseController');
 
 // Lista de productos (sin las fotos dentro: cada foto llega por su propia URL)

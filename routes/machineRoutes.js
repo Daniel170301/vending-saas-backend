@@ -1,6 +1,10 @@
 // routes/machineRoutes.js
 const express = require('express');
 const router = express.Router();
+
+// v3.5: los IDs de la dirección deben ser del dueño de la sesión (si no, 404)
+const propiedad = require('../utils/propiedad');
+router.param('id', propiedad.maquina);
 const { soloSuperadmin } = require('../utils/auth');
 
 // 1. IMPORTACIÓN CORREGIDA: Traemos todas las funciones, incluyendo updateMachineSettings

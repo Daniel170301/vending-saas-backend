@@ -8,16 +8,18 @@ const registerPurchase = async (req, res) => {
     try {
         const { id_usuario, proveedor, tipo_comprobante, numero_documento, fecha_compra, total, productos, imagen_comprobante } = req.body;
 
-        if (!id_usuario || !productos || productos.length === 0) {
+        // v3.6: con sesión, la compra siempre es del dueño de la sesión
+        const duenoSesion = req.usuario && !req.usuario.superadmin ? req.usuario.id : null;
+        if ((!id_usuario && !duenoSesion) || !productos || productos.length === 0) {
             return res.status(400).json({ success: false, message: 'Faltan datos o productos en la compra' });
         }
 
         await client.query('BEGIN');
 
         // --- ESTA ES LA PARTE QUE FALTABA: Convertir el correo al ID real ---
-        let id_dueno_real = id_usuario;
+        let id_dueno_real = duenoSesion || id_usuario;
         // Si lo que llega es un texto con un "@", buscamos su ID en la tabla
-        if (typeof id_usuario === 'string' && id_usuario.includes('@')) {
+        if (!duenoSesion && typeof id_usuario === 'string' && id_usuario.includes('@')) {
             const userRes = await client.query('SELECT id FROM usuarios_duenos WHERE email = $1', [id_usuario]);
             if (userRes.rows.length > 0) {
                 id_dueno_real = userRes.rows[0].id;
@@ -362,6 +364,8 @@ const crearGasto = async (req, res) => {
                 id_dueno_real = userRes.rows[0].id;
             }
         }
+        // v3.6: con sesión, el gasto siempre es del dueño de la sesión (antes, sin id_usuario quedaba sin dueño)
+        if (req.usuario && !req.usuario.superadmin) id_dueno_real = req.usuario.id;
 
         const query = `
             INSERT INTO gastos (categoria, concepto, monto, fecha, proveedor, machine_id, comprobante_tipo, comprobante_num, id_dueno) 

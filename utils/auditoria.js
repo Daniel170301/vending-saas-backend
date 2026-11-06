@@ -38,6 +38,7 @@ const ACCIONES = {
   maquina_suspendida:    'Suspendió la máquina',
   maquina_reactivada:    'Reactivó la máquina',
   entro_como_cliente:    'Entró a la cuenta del cliente (soporte)',
+  cuenta_eliminada:      'Un dueño eliminó su cuenta',
 };
 
 module.exports = { registrar, ACCIONES };
