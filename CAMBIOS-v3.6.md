@@ -1,4 +1,6 @@
-# vending-api-server · v3.6
+# vending-api-server · v3.6.1
+
+> **v3.6.1 (6-nov):** agrega la contraseña temporal para abrir "Celular de cobro" (sección 9). Si aún no subiste la v3.6, sube directamente esta: incluye todo.
 
 Va encima de la **v3.4** (la que está en Render) e **incluye todo lo de la v3.5** (seguridad y eliminar cuenta), que no llegaste a subir. Sube directamente esta.
 
@@ -160,3 +162,17 @@ Dentro de la app Android, Google no permite su botón (Google bloquea los inicio
   - El operario no tiene herramientas de ventas ni gastos y solo abastece sus máquinas.
   - Si Anthropic falla responde 502; un archivo que no es foto da 400.
   - Cuenta el uso por día. Sin clave queda apagado.
+
+## 9. v3.6.1 · Contraseña temporal para "Celular de cobro"
+- **Para qué:** quien tenga la app (el dueño o su encargado) no puede cambiar los códigos cel-N, las claves ni borrar cuentas de cobro sin un código que tú le das.
+- **Cómo funciona:**
+  - En Superadmin › Cobros Yape › **Acceso a celular de cobro** generas un código (ej. `K7QM-4XPA`).
+  - Sirve **una sola vez** y vence en **30 minutos** (puedes elegir de 5 minutos a 24 horas). Puedes anularlo si no se usó.
+  - Al escribirlo, la pantalla queda abierta **15 minutos** en ese celular. Después pide otro código.
+  - Tú (superadmin) entras sin código. Los operarios nunca entran.
+  - Tras 8 códigos errados, 15 minutos de espera.
+  - En la base de datos solo queda la huella del código (no se puede leer). Cada código creado, usado o anulado queda en la auditoría.
+- **Rutas:** `GET/POST /api/cobros/acceso` (app) · `GET/POST /api/superadmin/cobros-codigos`, `DELETE /api/superadmin/cobros-codigos/:id`.
+- **Tabla nueva:** `cobros_codigos` (se crea sola al arrancar). Nada que hacer en DBeaver.
+- **Probado:** 20 comprobaciones nuevas (además de las 203 de v3.6).
+

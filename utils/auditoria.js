@@ -39,6 +39,9 @@ const ACCIONES = {
   maquina_reactivada:    'Reactivó la máquina',
   entro_como_cliente:    'Entró a la cuenta del cliente (soporte)',
   cuenta_eliminada:      'Un dueño eliminó su cuenta',
+  acceso_cobros_creado:  'Creó un código para Celular de cobro',
+  acceso_cobros_usado:   'Usaron un código de Celular de cobro',
+  acceso_cobros_anulado: 'Anuló un código de Celular de cobro',
 };
 
 module.exports = { registrar, ACCIONES };

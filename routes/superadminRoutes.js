@@ -7,6 +7,7 @@ const flota = require('../controllers/superadminFlotaController');
 const yape = require('../controllers/superadminYapeController');
 const catalogo = require('../controllers/superadminCatalogoController');
 const clientes = require('../controllers/superadminClientesController');
+const cobrosAcceso = require('../controllers/cobrosAccesoController');
 
 router.use(soloSuperadmin);
 
@@ -34,6 +35,11 @@ router.get('/incidencias', yape.listarIncidencias);
 router.post('/incidencias/resolver', yape.resolverIncidencias);
 router.get('/sincronizacion', yape.sincronizacion);
 router.post('/sincronizacion/reintentar', yape.reintentarSincronizacion);
+
+// Contraseña temporal para abrir "Celular de cobro" en la app (v3.6.1)
+router.get('/cobros-codigos', cobrosAcceso.listar);
+router.post('/cobros-codigos', cobrosAcceso.generar);
+router.delete('/cobros-codigos/:id', cobrosAcceso.anular);
 
 // Clientes: mensualidad, suspensión y soporte
 router.get('/clientes', clientes.listarClientes);

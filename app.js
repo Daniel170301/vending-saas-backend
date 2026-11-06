@@ -63,6 +63,7 @@ app.use('/api/convenio', require('./routes/convenioRoutes'));   // convenios y v
 // v3.6 · Operarios (registro e ingreso sin sesión; lo demás con sesión) y asistente con IA
 app.use('/api/operarios', sesion({ siempre: true, publicas: [['POST', /^\/(registro|login)\/?$/]] }), require('./routes/operarioRoutes'));
 app.use('/api/asistente', sesion({ siempre: true }), maquinasPropias, require('./routes/asistenteRoutes'));
+app.use('/api/cobros', sesion({ siempre: true }), require('./routes/cobrosRoutes'));   // v3.6.1: acceso a Celular de cobro
 
 // Ruta base de prueba
 app.get('/', (req, res) => {
