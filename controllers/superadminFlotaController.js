@@ -8,6 +8,7 @@ const tiempo = require('../utils/tiempo');
 const resumenVentas = require('../services/resumenVentas');
 const auditoria = require('../utils/auditoria');
 const { columnaExiste } = require('../utils/esquema');
+const { filtroValidas } = require('../utils/ventasValidas');
 
 function responderError(res, e, contexto) {
   if (e && e.status) return res.status(e.status).json({ success: false, message: e.message, ...(e.extra || {}) });
@@ -55,7 +56,7 @@ async function consultarFlota(machineId = null) {
              COALESCE(sum(${MONTO()}) FILTER (WHERE ${metodo} = 'yape'), 0)::float AS yape,
              COALESCE(sum(${MONTO()}) FILTER (WHERE ${metodo} = 'efectivo'), 0)::float AS efectivo
       FROM historial_ventas v
-      WHERE v.fecha >= ${await tiempo.inicioDia(0)} ${machineId ? 'AND v.machine_id = $1' : ''}
+      WHERE v.fecha >= ${await tiempo.inicioDia(0)} AND ${await filtroValidas('v')} ${machineId ? 'AND v.machine_id = $1' : ''}
       GROUP BY 1
     )
     SELECT m.machine_id, NULLIF(btrim(m.name), '') AS nombre, ${nombre} AS name,
@@ -182,7 +183,7 @@ async function ventasPorDia(dias) {
     SELECT to_char(g.dia, 'YYYY-MM-DD') AS dia, COALESCE(x.unidades, 0)::int AS unidades, COALESCE(x.monto, 0)::float AS monto
     FROM generate_series(${tiempo.HOY} - ${dias - 1}, ${tiempo.HOY}, interval '1 day') g(dia)
     LEFT JOIN (SELECT ${dia} AS dia, count(*) AS unidades, sum(${MONTO()}) AS monto
-               FROM historial_ventas v WHERE v.fecha >= ${await tiempo.inicioDia(dias - 1)} GROUP BY 1) x ON x.dia = g.dia::date
+               FROM historial_ventas v WHERE v.fecha >= ${await tiempo.inicioDia(dias - 1)} AND ${await filtroValidas('v')} GROUP BY 1) x ON x.dia = g.dia::date
     ORDER BY g.dia`);
   return rows;
 }

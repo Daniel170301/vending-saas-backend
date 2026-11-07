@@ -9,7 +9,15 @@
 // Un trigger en historial_ventas los actualiza con CADA venta, venga de donde venga
 // (este servidor, kymez-pagos o DBeaver). Si el trigger fallara, NUNCA bloquea la venta:
 // solo deja un aviso, y la revisión nocturna (03:10) recalcula los últimos 3 días.
+//
+// v3.6.3: las ventas marcadas como PRUEBA o DEVOLUCIÓN no cuentan. Al marcar o desmarcar una
+// venta en Ventas, el trigger la resta o la vuelve a sumar en el momento. La primera vez que
+// arranca esta versión recalcula todo el historial (una sola vez) para sacar las ya marcadas.
 const pool = require('../config/database');
+const { VALIDA, asegurarColumnas } = require('../utils/ventasValidas');
+
+// Cambia este texto si cambia la regla de qué venta cuenta: fuerza un recálculo completo al arrancar
+const VERSION = 'qhapay-resumen v2: sin prueba ni devolucion';
 
 const ZONA_VALIDA = /^[A-Za-z][A-Za-z0-9_+\-/]{0,40}$/;
 const ZONA = ZONA_VALIDA.test(process.env.NEGOCIO_ZONA || '') ? process.env.NEGOCIO_ZONA : 'America/Lima';
@@ -52,16 +60,22 @@ async function instalar() {
       unidades integer NOT NULL DEFAULT 0, monto numeric NOT NULL DEFAULT 0,
       PRIMARY KEY (id_dueno, dia, producto))`);
 
+    // Las columnas es_prueba / es_devolucion deben existir antes de que el trigger las use
+    await asegurarColumnas(cli);
+    const anterior = (await cli.query(
+      "SELECT obj_description(oid, 'pg_proc') AS v FROM pg_proc WHERE proname = 'qhapay_resumen_venta' LIMIT 1")).rows[0]?.v || null;
+
     const diaNew = await exprDia(cli, 'NEW.fecha');
     const diaOld = await exprDia(cli, 'OLD.fecha');
     await cli.query(`
       CREATE OR REPLACE FUNCTION qhapay_resumen_venta() RETURNS trigger LANGUAGE plpgsql AS $f$
+      -- ${VERSION}
       DECLARE d date; dueno text; m numeric; p text;
       BEGIN
         -- Cambio de código de una máquina: mueve los totales de una sola vez (services/codigoMaquina.js)
         IF current_setting('qhapay.sin_resumen', true) = 'on' THEN RETURN NULL; END IF;
         BEGIN
-          IF TG_OP IN ('DELETE', 'UPDATE') THEN
+          IF TG_OP IN ('DELETE', 'UPDATE') AND ${VALIDA('OLD')} THEN
             d := ${diaOld}; m := ${MONTO('OLD')}; p := ${PRODUCTO('OLD')};
             SELECT id_dueno::text INTO dueno FROM maquinas WHERE machine_id = OLD.machine_id;
             UPDATE ventas_dia_maquina SET unidades = unidades - 1, monto = monto - m
@@ -71,7 +85,7 @@ async function instalar() {
             UPDATE ventas_dia_producto SET unidades = unidades - 1, monto = monto - m
               WHERE id_dueno = COALESCE(dueno, '') AND dia = d AND producto = p;
           END IF;
-          IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.machine_id IS NOT NULL THEN
+          IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.machine_id IS NOT NULL AND ${VALIDA('NEW')} THEN
             d := ${diaNew}; m := ${MONTO('NEW')}; p := ${PRODUCTO('NEW')};
             SELECT id_dueno::text INTO dueno FROM maquinas WHERE machine_id = NEW.machine_id;
             INSERT INTO ventas_dia_maquina AS t (machine_id, dia, unidades, monto) VALUES (NEW.machine_id, d, 1, m)
@@ -86,21 +100,22 @@ async function instalar() {
         END;
         RETURN NULL;
       END $f$`);
+    await cli.query(`COMMENT ON FUNCTION qhapay_resumen_venta() IS '${VERSION}'`);
 
     // Bloquea un instante las ventas nuevas para no contar dos veces mientras se instala
     await cli.query('LOCK TABLE historial_ventas IN SHARE ROW EXCLUSIVE MODE');
     await cli.query('DROP TRIGGER IF EXISTS trg_qhapay_resumen_venta ON historial_ventas');
     await cli.query(`CREATE TRIGGER trg_qhapay_resumen_venta
-      AFTER INSERT OR DELETE OR UPDATE OF machine_id, precio, nombre_producto, fecha ON historial_ventas
+      AFTER INSERT OR DELETE OR UPDATE OF machine_id, precio, nombre_producto, fecha, es_prueba, es_devolucion ON historial_ventas
       FOR EACH ROW EXECUTE FUNCTION qhapay_resumen_venta()`);
 
     // Primera vez: llena con todo el historial
     const vacio = (await cli.query(
       'SELECT NOT EXISTS (SELECT 1 FROM ventas_dia_maquina) OR NOT EXISTS (SELECT 1 FROM ventas_mes_maquina) AS v')).rows[0].v;
-    if (vacio) {
+    if (vacio || anterior !== VERSION) {
       const t0 = Date.now();
       await llenar(cli, null);
-      console.log(`[resumen-ventas] historial cargado en ${Date.now() - t0} ms`);
+      console.log(`[resumen-ventas] historial ${vacio ? 'cargado' : 'recalculado (sin pruebas ni devoluciones)'} en ${Date.now() - t0} ms`);
     }
     await cli.query('COMMIT');
     listo = true;
@@ -116,7 +131,8 @@ async function instalar() {
 // Recalcula desde un día (o todo si desdeDias es null). Debe correr dentro de una transacción.
 async function llenar(cli, desdeDias) {
   const dia = await exprDia(cli, 'v.fecha');
-  const filtro = desdeDias == null ? '' : `WHERE v.fecha >= now() - make_interval(days => ${Number(desdeDias) + 1})`;
+  const filtro = `WHERE ${VALIDA('v')}` +
+    (desdeDias == null ? '' : ` AND v.fecha >= now() - make_interval(days => ${Number(desdeDias) + 1})`);
   const corte = desdeDias == null ? '' : `WHERE dia >= ((now() AT TIME ZONE '${ZONA}')::date - ${Number(desdeDias)})`;
   await cli.query(`DELETE FROM ventas_dia_maquina ${corte}`);
   await cli.query(`DELETE FROM ventas_dia_producto ${corte}`);
@@ -155,7 +171,7 @@ async function recalcularRango(cli, desdeDia, hastaDia) {
     SELECT v.machine_id, ${dia} AS dia, ${MONTO('v')} AS monto, ${PRODUCTO('v')} AS producto,
            COALESCE(m.id_dueno::text, '') AS id_dueno
     FROM historial_ventas v LEFT JOIN maquinas m ON m.machine_id = v.machine_id
-    WHERE v.fecha >= ($1::date - 1) AND v.fecha < ($2::date + 2)`;
+    WHERE v.fecha >= ($1::date - 1) AND v.fecha < ($2::date + 2) AND ${VALIDA('v')}`;
   await cli.query('DELETE FROM ventas_dia_maquina WHERE dia BETWEEN $1::date AND $2::date', [desdeDia, hastaDia]);
   await cli.query('DELETE FROM ventas_dia_producto WHERE dia BETWEEN $1::date AND $2::date', [desdeDia, hastaDia]);
   await cli.query(`
@@ -183,7 +199,13 @@ async function recalcularRango(cli, desdeDia, hastaDia) {
 async function detectar() {
   try {
     const r = await pool.query("SELECT 1 FROM pg_trigger WHERE tgname = 'trg_qhapay_resumen_venta' AND NOT tgisinternal");
-    listo = r.rowCount > 0;
+    const v = await pool.query(
+      "SELECT obj_description(oid, 'pg_proc') AS v FROM pg_proc WHERE proname = 'qhapay_resumen_venta' LIMIT 1");
+    // Trigger de una versión anterior (contaba pruebas): usa el cálculo directo hasta que se migre
+    listo = r.rowCount > 0 && v.rows[0]?.v === VERSION;
+    if (r.rowCount > 0 && !listo) {
+      console.warn('[resumen-ventas] totales de una versión anterior: Inicio usará el cálculo directo hasta que arranque con MIGRAR_AL_INICIAR distinto de false');
+    }
   } catch { listo = false; }
 }
 

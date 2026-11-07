@@ -182,3 +182,19 @@ Dentro de la app Android, Google no permite su botón (Google bloquea los inicio
 - `COBROS_SIN_CODIGO` (Render): correos que abren "Celular de cobro" sin código temporal. Varios separados por coma.
 - Úsalo solo para la cuenta de prueba que le das a Google Play. Si la variable no existe, todo funciona como en v3.6.1.
 
+
+## 11. v3.6.3 · Las ventas de prueba y las devoluciones ya no cuentan en Inicio
+
+**Problema (reportado por un cliente):** al marcar una venta como *prueba* en Ventas, desaparecía de la lista pero Inicio la seguía sumando en "Ventas del día". Los totales rápidos (`ventas_dia_maquina`, `ventas_mes_maquina`, `ventas_dia_producto`) los llena un trigger que no miraba `es_prueba` ni `es_devolucion`, y no se enteraba cuando se marcaba una venta.
+
+**Arreglo:**
+- El trigger solo cuenta ventas que no son prueba ni devolución, y ahora también reacciona al marcar o desmarcar (`UPDATE OF … es_prueba, es_devolucion`). Marcar resta la venta en el momento; desmarcar la vuelve a sumar.
+- **La primera vez que arranca v3.6.3, recalcula todo el historial una sola vez**, para sacar las pruebas y devoluciones ya marcadas. En los logs sale `[resumen-ventas] historial recalculado (sin pruebas ni devoluciones) en N ms`. Durante esos segundos, las ventas nuevas esperan; no se pierden.
+- La revisión nocturna, "mover datos sin máquina" y los cálculos directos (cuando no hay totales rápidos) usan la misma regla: Inicio, `/api/dashboard`, top productos, y "Hoy" y "Ventas por día" del Superadmin.
+- Al marcar una venta como prueba o devolución, se limpia la caché de Inicio (15 s) y la del Superadmin: el cambio se ve de inmediato.
+- Con `MIGRAR_AL_INICIAR=false` y un trigger viejo, el servidor no usa los totales viejos (usa el cálculo directo, que ya filtra) y deja un aviso en el log.
+- `/api/ventas` no cambia: sigue devolviendo las ventas de prueba con `es_prueba: true`, para que la app las muestre u oculte.
+
+Archivos: `utils/ventasValidas.js` (nuevo), `services/resumenVentas.js`, `controllers/dashboardResumen.js`, `controllers/dashboardController.js`, `controllers/superadminFlotaController.js`, `routes/convenioRoutes.js`.
+
+Probado: `t363.js` (31 comprobaciones: el error en v3.6.2, el recálculo al migrar, marcar/desmarcar, devolución, borrar, revisión nocturna, caché) más `t361` (23), `t36` (108) y `t35` (92).

@@ -6,6 +6,7 @@ const pool = require('../config/database');
 const { usuarioPorEmail } = require('../utils/usuarios');
 const resumenVentas = require('../services/resumenVentas');
 const identidad = require('../services/identidadMaquina');
+const { filtroValidas } = require('../utils/ventasValidas');
 
 const cacheResumen = new Map();   // clave -> { cuerpo, vence }
 
@@ -174,6 +175,7 @@ const obtenerResumen = async (req, res) => {
           ORDER BY pa.id DESC LIMIT 1
         ) p ON true
         WHERE v.fecha >= ${aBD("LEAST(date_trunc('year', (SELECT ahora FROM lim)), date_trunc('day', (SELECT ahora FROM lim)) - interval '13 days')")}
+          AND ${await filtroValidas('v')}
       )
       SELECT json_build_object(
         'totales', (
@@ -225,4 +227,7 @@ const obtenerResumen = async (req, res) => {
   }
 };
 
-module.exports = { obtenerResumen };
+// v3.6.3: al marcar una venta como prueba o devolución, Inicio debe verse al instante
+const invalidar = () => cacheResumen.clear();
+
+module.exports = { obtenerResumen, invalidar };

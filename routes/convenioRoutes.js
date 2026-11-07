@@ -34,6 +34,12 @@ const { usuarioPorEmail } = require('../utils/usuarios');
 const { ROLES_SUPERADMIN, MENSAJES } = require('../utils/auth');
 const { columnaExiste } = require('../utils/esquema');
 
+// v3.6.3: tras marcar prueba/devolución, Inicio y Superadmin no deben mostrar el total viejo de su caché
+function refrescarTotales() {
+  try { require('../controllers/dashboardResumen').invalidar(); } catch (e) { /* no bloquea */ }
+  try { require('../controllers/superadminFlotaController').invalidarResumen(); } catch (e) { /* no bloquea */ }
+}
+
 const router = express.Router();
 const SECRETO = process.env.JWT_SECRET || null;
 
@@ -243,6 +249,7 @@ router.patch('/ventas/prueba', ruta(async (req, res, usr) => {
             prueba_marcada_en  = CASE WHEN $2 THEN now() ELSE NULL END
       WHERE id = ANY($1)
       RETURNING id, es_prueba`, [ids, b.es_prueba, usr.email]);
+  refrescarTotales();
   res.json({ success: true, message: b.es_prueba ? 'Marcadas como prueba' : 'Ya no son de prueba', actualizadas: r.rowCount, ventas: r.rows });
 }));
 
@@ -260,6 +267,7 @@ router.patch('/ventas/devolucion', ruta(async (req, res, usr) => {
             devolucion_marcada_en  = CASE WHEN $2 THEN now() ELSE NULL END
       WHERE id = ANY($1)
       RETURNING id, es_devolucion, devolucion_motivo`, [ids, b.es_devolucion, usr.email, motivo]);
+  refrescarTotales();
   res.json({ success: true, message: b.es_devolucion ? 'Devolución registrada' : 'Devolución anulada', actualizadas: r.rowCount, ventas: r.rows });
 }));
 

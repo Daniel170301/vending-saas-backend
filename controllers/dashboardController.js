@@ -1,5 +1,6 @@
 // controllers/dashboardController.js
 const pool = require('../config/database'); 
+const { filtroValidas } = require('../utils/ventasValidas');
 
 const getDashboardMetrics = async (req, res) => {
     try {
@@ -18,7 +19,7 @@ const getDashboardMetrics = async (req, res) => {
             FROM historial_ventas v
             JOIN maquinas m ON v.machine_id = m.machine_id
             JOIN usuarios_duenos u ON m.id_dueno::text = u.id::text
-            WHERE u.email = $1;
+            WHERE u.email = $1 AND ${await filtroValidas('v')};
         `;
 
         const queryMaquinas = `
@@ -72,7 +73,7 @@ const obtenerTopProductos = async (req, res) => {
 
         // 2. Construcción dinámica de la condición WHERE
         let values = [user_email];
-        let whereClause = "WHERE u.email = $1";
+        let whereClause = `WHERE u.email = $1 AND ${await filtroValidas('v')}`;
         let paramIndex = 2;
 
         if (machine_id && machine_id !== 'general' && machine_id !== 'Todas') {
