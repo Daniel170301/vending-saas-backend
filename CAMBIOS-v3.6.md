@@ -1,4 +1,6 @@
-# vending-api-server · v3.6.1
+# vending-api-server · v3.6.2
+
+> **v3.6.2 (7-nov):** variable `COBROS_SIN_CODIGO` para que la cuenta de prueba de Google Play abra "Celular de cobro" sin código (sección 10).
 
 > **v3.6.1 (6-nov):** agrega la contraseña temporal para abrir "Celular de cobro" (sección 9). Si aún no subiste la v3.6, sube directamente esta: incluye todo.
 
@@ -175,4 +177,8 @@ Dentro de la app Android, Google no permite su botón (Google bloquea los inicio
 - **Rutas:** `GET/POST /api/cobros/acceso` (app) · `GET/POST /api/superadmin/cobros-codigos`, `DELETE /api/superadmin/cobros-codigos/:id`.
 - **Tabla nueva:** `cobros_codigos` (se crea sola al arrancar). Nada que hacer en DBeaver.
 - **Probado:** 20 comprobaciones nuevas (además de las 203 de v3.6).
+
+## 10. v3.6.2 · Cuenta de revisión sin código
+- `COBROS_SIN_CODIGO` (Render): correos que abren "Celular de cobro" sin código temporal. Varios separados por coma.
+- Úsalo solo para la cuenta de prueba que le das a Google Play. Si la variable no existe, todo funciona como en v3.6.1.
 

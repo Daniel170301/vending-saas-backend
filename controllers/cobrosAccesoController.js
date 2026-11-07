@@ -5,18 +5,25 @@ const auditoria = require('../utils/auditoria');
 
 // ---------- Dueño / superadmin (desde la app) ----------
 
+// v3.6.2: correos que entran sin código (por ejemplo, la cuenta de prueba para la revisión de Google Play).
+// En Render: COBROS_SIN_CODIGO=revision.qhapay@gmail.com  (varios separados por coma). Vacío = nadie.
+function sinCodigo(u) {
+  const lista = String(process.env.COBROS_SIN_CODIGO || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
+  return !!u.email && lista.includes(String(u.email).toLowerCase());
+}
+
 // GET /api/cobros/acceso → ¿necesita código?
 const estado = (req, res) => {
   const u = req.usuario;
   if (u.operario || u.rol === 'operario') return res.status(403).json({ success: false, message: 'Esta pantalla no está disponible para operarios.' });
-  res.json({ success: true, requiere_codigo: !u.superadmin, minutos_abierto: acceso.MINUTOS_ABIERTO });
+  res.json({ success: true, requiere_codigo: !(u.superadmin || sinCodigo(u)), minutos_abierto: acceso.MINUTOS_ABIERTO });
 };
 
 // POST /api/cobros/acceso { codigo }
 const abrir = async (req, res) => {
   const u = req.usuario;
   if (u.operario || u.rol === 'operario') return res.status(403).json({ success: false, message: 'Esta pantalla no está disponible para operarios.' });
-  if (u.superadmin) return res.json({ success: true, minutos_abierto: acceso.MINUTOS_ABIERTO });
+  if (u.superadmin || sinCodigo(u)) return res.json({ success: true, minutos_abierto: acceso.MINUTOS_ABIERTO });
   const clave = `cobros:${u.id}`;
   const espera = limite.bloqueado(req, clave);
   if (espera) {
