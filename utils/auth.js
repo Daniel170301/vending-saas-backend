@@ -21,7 +21,19 @@ const MENSAJES = {
   vencido: 'Tu sesión venció. Cierra sesión y vuelve a entrar.',
   invalido: 'Tu sesión no es válida. Cierra sesión y vuelve a entrar.',
   no_superadmin: 'Solo el superadmin de Qhapay puede hacer esto.',
+  cerrada: 'Se cerró la sesión en todos los dispositivos. Vuelve a entrar.',
 };
+
+// v3.6.4 · Duración de la sesión. El dueño queda dentro 30 días (antes 12 h); el superadmin, 12 h.
+// Se cambian sin tocar código con SESION_DUENO / SESION_SUPERADMIN en Render (ej. '7d', '12h').
+const DURACION_DUENO = String(process.env.SESION_DUENO || '30d').trim();
+const DURACION_SUPERADMIN = String(process.env.SESION_SUPERADMIN || '12h').trim();
+const duracionPara = (rol) => (ROLES_SUPERADMIN.has(String(rol || '').toLowerCase()) ? DURACION_SUPERADMIN : DURACION_DUENO);
+
+// ¿El token es anterior a "cerrar sesión en todos los dispositivos"? (iat en segundos)
+function revocado(u, datos) {
+  return !!(u && u.sesionesDesde && datos && Number(datos.iat || 0) < Math.floor(u.sesionesDesde / 1000));
+}
 
 // Lee y verifica el token. Devuelve { datos } o { motivo }.
 function leerToken(req) {
@@ -43,6 +55,7 @@ async function verificarSuperadmin(req) {
   const email = t.datos.email;
   const u = email ? await usuarioPorEmail(email) : null;
   if (!u || !ROLES_SUPERADMIN.has(u.rol)) return { ok: false, motivo: 'no_superadmin' };
+  if (revocado(u, t.datos)) return { ok: false, motivo: 'cerrada' };
   return { ok: true, email: String(email).toLowerCase(), id: u.id };
 }
 
@@ -64,7 +77,7 @@ async function soloSuperadmin(req, res, next) {
 
 // Crea el token de sesión. Ya no existe una clave "de respaldo" escrita en el código: sin
 // JWT_SECRET en Render no se puede iniciar sesión (antes cualquiera podía fabricar tokens con ella).
-function firmarToken(user, expiresIn = '12h') {
+function firmarToken(user, expiresIn = duracionPara(user && user.rol)) {
   if (!SECRETO) {
     const e = new Error(MENSAJES.sin_configurar);
     e.status = 503;
@@ -87,4 +100,4 @@ function firmarTokenOperario(op, expiresIn = '30d') {
     SECRETO, { algorithm: 'HS256', expiresIn });
 }
 
-module.exports = { verificarSuperadmin, soloSuperadmin, leerToken, firmarToken, firmarTokenOperario, MENSAJES, ROLES_SUPERADMIN };
+module.exports = { verificarSuperadmin, soloSuperadmin, leerToken, firmarToken, firmarTokenOperario, revocado, MENSAJES, ROLES_SUPERADMIN };

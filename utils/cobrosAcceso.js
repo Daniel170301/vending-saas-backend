@@ -1,5 +1,7 @@
-// utils/cobrosAcceso.js  (v3.6.1)
-// Contraseña TEMPORAL para abrir "Celular de cobro" en la app Android.
+// utils/cobrosAcceso.js  (v3.6.1 · v3.6.5)
+// Contraseña TEMPORAL para "Celular de cobro" en la app Android.
+//  v3.6.5: el código puede ir LIGADO a una cuenta (cel-N). Ese código no abre la pantalla
+//  para escribir datos: configura el celular solo (ver utils/cobrosVinculo.js).
 //  - La genera el superadmin (Superadmin → Cobros Yape → Acceso a celular de cobro).
 //  - Sirve UNA sola vez y vence sola (por defecto en 30 minutos).
 //  - Se guarda solo su huella (sha256): ni en la base de datos se puede leer.
@@ -26,7 +28,9 @@ function asegurarTabla() {
         usado_en    TIMESTAMPTZ,
         usado_por   TEXT,
         anulado_en  TIMESTAMPTZ
-      )`).catch((e) => { listo = null; throw e; });
+      )`)
+      .then(() => pool.query('ALTER TABLE cobros_codigos ADD COLUMN IF NOT EXISTS cuenta_id TEXT'))
+      .catch((e) => { listo = null; throw e; });
   }
   return listo;
 }
@@ -42,17 +46,19 @@ function nuevoCodigo() {
   return c;
 }
 
-async function generar({ minutos, nota, creadoPor }) {
+async function generar({ minutos, nota, creadoPor, cuentaId = null }) {
   await asegurarTabla();
   const m = Math.min(MAX_MINUTOS, Math.max(MIN_MINUTOS, Math.round(Number(minutos) || 30)));
+  // Un solo código vigente por cuenta: el anterior deja de servir.
+  if (cuentaId) await anularDeCuenta(cuentaId);
   for (let intento = 0; intento < 5; intento++) {
     const c = nuevoCodigo();
     try {
       const r = await pool.query(
-        `INSERT INTO cobros_codigos (codigo_hash, nota, creado_por, vence_en)
-         VALUES ($1, $2, $3, now() + make_interval(mins => $4)) RETURNING id, vence_en`,
-        [huella(c), nota ? String(nota).slice(0, 120) : null, creadoPor || null, m]);
-      return { id: r.rows[0].id, codigo: mostrar(c), vence_en: r.rows[0].vence_en, minutos: m };
+        `INSERT INTO cobros_codigos (codigo_hash, nota, creado_por, vence_en, cuenta_id)
+         VALUES ($1, $2, $3, now() + make_interval(mins => $4), $5) RETURNING id, vence_en`,
+        [huella(c), nota ? String(nota).slice(0, 120) : null, creadoPor || null, m, cuentaId || null]);
+      return { id: r.rows[0].id, codigo: mostrar(c), vence_en: r.rows[0].vence_en, minutos: m, cuenta_id: cuentaId || null };
     } catch (e) {
       if (e.code !== '23505') throw e;          // se repitió (casi imposible): otro
     }
@@ -61,21 +67,25 @@ async function generar({ minutos, nota, creadoPor }) {
 }
 
 // Gasta el código (una sola vez, en una sola sentencia: dos celulares no pueden usar el mismo).
-async function canjear(codigo, usadoPor) {
+// vinculo = false → códigos "de acceso" (sin cuenta); vinculo = true → códigos ligados a una cuenta.
+// Así un código de vinculación no se gasta por error en la pantalla antigua, ni al revés.
+// cli: cliente de una transacción (si lo que sigue falla, el código NO queda gastado).
+async function canjear(codigo, usadoPor, { cli = pool, vinculo = false } = {}) {
   await asegurarTabla();
   const c = normalizar(codigo);
   if (c.length !== 8) return null;
-  const r = await pool.query(
+  const r = await cli.query(
     `UPDATE cobros_codigos SET usado_en = now(), usado_por = $2
       WHERE codigo_hash = $1 AND usado_en IS NULL AND anulado_en IS NULL AND vence_en > now()
-      RETURNING id, nota`, [huella(c), usadoPor || null]);
+        AND (cuenta_id IS NOT NULL) = $3
+      RETURNING id, nota, cuenta_id`, [huella(c), usadoPor || null, !!vinculo]);
   return r.rows[0] || null;
 }
 
 async function listar() {
   await asegurarTabla();
   const r = await pool.query(
-    `SELECT id, nota, creado_por, creado_en, vence_en, usado_en, usado_por, anulado_en,
+    `SELECT id, nota, cuenta_id, creado_por, creado_en, vence_en, usado_en, usado_por, anulado_en,
             CASE WHEN anulado_en IS NOT NULL THEN 'anulado'
                  WHEN usado_en IS NOT NULL THEN 'usado'
                  WHEN vence_en <= now() THEN 'vencido'
@@ -92,4 +102,23 @@ async function anular(id) {
   return r.rowCount > 0;
 }
 
-module.exports = { asegurarTabla, generar, canjear, listar, anular, MINUTOS_ABIERTO, MIN_MINUTOS, MAX_MINUTOS };
+// Anula los códigos vigentes de una cuenta (al generar otro, al desvincular o al desactivar).
+async function anularDeCuenta(cuentaId) {
+  await asegurarTabla();
+  const r = await pool.query(
+    `UPDATE cobros_codigos SET anulado_en = now()
+      WHERE cuenta_id = $1 AND usado_en IS NULL AND anulado_en IS NULL AND vence_en > now()`, [String(cuentaId)]);
+  return r.rowCount;
+}
+
+// { 'cel-3': vence_en } de los códigos de vinculación que aún sirven
+async function vigentesPorCuenta() {
+  await asegurarTabla();
+  const r = await pool.query(
+    `SELECT cuenta_id, max(vence_en) AS vence_en FROM cobros_codigos
+      WHERE cuenta_id IS NOT NULL AND usado_en IS NULL AND anulado_en IS NULL AND vence_en > now() GROUP BY 1`);
+  return Object.fromEntries(r.rows.map((x) => [x.cuenta_id, x.vence_en]));
+}
+
+module.exports = { asegurarTabla, generar, canjear, listar, anular, anularDeCuenta, vigentesPorCuenta, normalizar,
+  MINUTOS_ABIERTO, MIN_MINUTOS, MAX_MINUTOS };

@@ -56,6 +56,7 @@ server.listen(PORT, () => {
       require('./services/asistente').asegurarTabla(),
       require('./utils/clientesDueno').asegurar(),
       require('./utils/cobrosAcceso').asegurarTabla(),
+      require('./utils/usuarios').asegurarColumna(),                      // v3.6.4: sesiones_desde
     ]).catch((e) => console.error('[v3.6] tablas:', e.message)))
     .then(() => {
       if (process.env.OPTIMIZAR_IMAGENES_AL_INICIAR === 'true') {

@@ -198,3 +198,52 @@ Dentro de la app Android, Google no permite su botón (Google bloquea los inicio
 Archivos: `utils/ventasValidas.js` (nuevo), `services/resumenVentas.js`, `controllers/dashboardResumen.js`, `controllers/dashboardController.js`, `controllers/superadminFlotaController.js`, `routes/convenioRoutes.js`.
 
 Probado: `t363.js` (31 comprobaciones: el error en v3.6.2, el recálculo al migrar, marcar/desmarcar, devolución, borrar, revisión nocturna, caché) más `t361` (23), `t36` (108) y `t35` (92).
+
+## 12. v3.6.4 · La sesión dura 30 días y se puede cerrar en todos los dispositivos
+
+**Problema:** los clientes tenían que volver a entrar con Google cada 15 minutos. Ese cierre lo hace la app (`AppLayout.tsx`, cierre por inactividad), y se corrige con el prompt de Lovable. Pero aunque se quite, el servidor entregaba sesiones de 12 horas: al día siguiente había que entrar otra vez.
+
+**Cambios:**
+- **Dueños:** la sesión dura **30 días**. **Superadmin:** sigue en 12 horas. Los operarios ya tenían 30 días. El modo soporte sigue en 2 horas.
+  - Se cambian sin tocar código con `SESION_DUENO` y `SESION_SUPERADMIN` en Render (ej. `7d`, `12h`).
+- **Cerrar sesión en todos los dispositivos** (`POST /api/cuenta/cerrar-sesiones`): los tokens anteriores dejan de valer (401 `codigo: "cerrada"`) y quien lo pidió recibe un token nuevo.
+  - Nueva columna `usuarios_duenos.sesiones_desde`; se crea sola al arrancar.
+- **Cambiar la contraseña** cierra las sesiones de los otros dispositivos y devuelve `token` nuevo. Crear la contraseña de una cuenta de Google no cierra nada.
+- **Restablecer la contraseña** ("¿Olvidaste tu contraseña?") también cierra las demás sesiones.
+- En modo soporte no se pueden cerrar las sesiones del cliente.
+
+Archivos: `utils/usuarios.js`, `utils/auth.js`, `utils/sesion.js`, `controllers/authController.js`, `controllers/cuentaController.js`, `routes/cuentaRoutes.js`, `server.js`.
+
+Probado: `t364.js` (22 comprobaciones, incluida la base sin la columna nueva) más `t363` (31), `t361` (23), `t36` (108) y `t35` (92).
+
+## 13. v3.6.5 · Celular de cobro con código (sin token ni link), sin latido y Cobros Yape más fácil de limpiar
+
+**Vincular el celular con un código.** El cliente ya no escribe claves ni ve la dirección del servidor.
+- Superadmin › Cobros Yape › Celulares › *Vincular celular* (`POST /api/superadmin/cuentas-yape/:id/codigo`): código `XXXX-XXXX` de un solo uso (30 min por defecto), ligado a esa cuenta. Generar otro anula el anterior.
+- En QhaPay el cliente escribe el código (`POST /api/cobros/vincular`): el servidor crea una clave nueva para esa cuenta, guarda solo su huella en `kymez.cuentas_cobro.token_sha256` (la que revisa kymez-pagos) y le entrega la clave a la app **una vez**. La app la guarda en el celular y no la muestra.
+- Vincular de nuevo cambia la clave: el celular anterior queda fuera. **Al vincular, MacroDroid en ese celular deja de funcionar** (usaba la clave general): así no se acredita dos veces.
+- *Desvincular* (`POST /api/superadmin/cuentas-yape/:id/desvincular`): ese celular deja de enviar pagos al instante. Con `{ "modo": "clave_general" }` la cuenta vuelve a aceptar la clave general (para regresar a MacroDroid).
+- La lista de cuentas trae `vinculo` (`vinculado`, `desvinculado`, `clave_propia`, `clave_general`, `desactivado`), quién y con qué equipo se vinculó, y si hay un código vigente.
+- Los códigos de vinculación no abren la pantalla antigua (`/api/cobros/acceso`) y los códigos antiguos no vinculan: no se gastan por error. Mismo freno de intentos (8 fallos → espera).
+- Columnas nuevas (se crean solas): `cobros_codigos.cuenta_id`; `kymez.cuentas_cobro.vinculado_en`, `vinculado_por`, `vinculado_equipo`, `desvinculado_en`.
+
+**Sin latido.** KYMEZ ya no vigila el celular del cliente.
+- Ninguna cuenta sale como "sin latido" y el Centro de control ya no alerta por celulares. `estado` devuelve `sin_latido_configurado` (valor que la app anterior ya conoce).
+- Para volver a vigilarlos: `CELULAR_VIGILAR=si` en Render (aquí y en kymez-pagos).
+
+**Por atender, con el motivo** (`GET /api/superadmin/pagos-yape/por-atender?dias=30&cuenta=&motivo=&q=&limite=100`). Cada pago pendiente trae por qué quedó así, mirando los QR que tenían abiertos las máquinas de ese celular:
+- `nadie_comprando`: ninguna máquina cobraba → casi siempre un pago personal del dueño. Sugerencia: archivar.
+- `llego_tarde`: el QR de ese monto se cerró hasta 5 minutos antes (trae la máquina). Sugerencia: reembolsar.
+- `ya_pagado`: ese pedido ya estaba pagado (pagó dos veces). `otro_monto`: una máquina esperaba otro monto (trae cuál).
+- Más los estados de siempre (`no_entregado`, `reembolsar`, `reembolsar_parcial`, `posible_duplicado`).
+- Devuelve totales por motivo y por celular de **todo** lo pendiente, no solo de la página.
+
+**Limpiar en bloque** (`POST /api/superadmin/pagos-yape/atender`): `accion` = `archivar` o `reembolsado`, con `ids`, o con `cuenta` y/o `motivo` (+ `dias`), o `{ "todos": true }`.
+- **No borra nada.** El pago queda `archivado` (estado nuevo) o `reembolsado`, con quién, cuándo, nota, estado anterior y motivo; se cierran sus incidencias y queda en Auditoría.
+- Incidencias: `POST /incidencias/resolver` acepta `{ "todas": true }`. Sincronización: `POST /sincronizacion/reintentar` acepta `{ "todas": true }`.
+
+**Varias máquinas a un celular de una vez** (`PUT /api/superadmin/cuentas-yape/:id/maquinas` con `machine_ids`). No hay límite de máquinas por celular. Suma las elegidas; no quita las que ya tenía.
+
+Archivos: `utils/cobrosVinculo.js` (nuevo), `utils/cobrosAcceso.js`, `utils/auditoria.js`, `services/kymez.js`, `controllers/cobrosAccesoController.js`, `controllers/superadminYapeController.js`, `controllers/superadminFlotaController.js`, `routes/cobrosRoutes.js`, `routes/superadminRoutes.js`.
+
+Probado: `t365.js` (82 comprobaciones; la huella se compara con el `firma.js` real de kymez-pagos) más `t364` (22), `t363` (31), `t361` (23), `t36` (108) y `t35` (92).

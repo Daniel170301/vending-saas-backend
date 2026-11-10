@@ -34,17 +34,18 @@ async function camposMaquina() {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Celulares de cobro (kymez.cuentas_cobro)
 // ─────────────────────────────────────────────────────────────────────────────
-const LATIDO_MAX_MIN = Number(process.env.CELULAR_LATIDO_MAX_MIN || 12);
-function estadoCelular(c) {
-  if (c.activa === false) return 'desactivado';
-  if (!c.ultimo_latido) return 'sin_latido_configurado';
-  return Date.now() - new Date(c.ultimo_latido).getTime() > LATIDO_MAX_MIN * 60000 ? 'sin_latido' : 'en_linea';
-}
+// v3.6.5: sin latido (KYMEZ ya no vigila el celular del cliente). El estado útil es el VÍNCULO.
+const LATIDO_MAX_MIN = kymez.LATIDO_MAX_MIN;
+const estadoCelular = kymez.estadoCelular;
+const vinculo = require('../utils/cobrosVinculo');
+const cobrosAcceso = require('../utils/cobrosAcceso');
 
 // GET /api/superadmin/cuentas-yape
 const listarCuentas = async (req, res) => {
   try {
     if (!(await kymez.tiene('cuentas_cobro', 'id'))) return sinKymez(res);
+    await vinculo.asegurarColumnas();
+    const vigentes = await cobrosAcceso.vigentesPorCuenta();
     const pagosConCuenta = await kymez.tiene('pagos_yape', 'cuenta_cobro_id');
     const nombre = await identidad.sqlNombre('m');
     const kmt = (await identidad.hayKMT()) ? 'm.codigo_kmt' : 'NULL::text';
@@ -59,6 +60,8 @@ const listarCuentas = async (req, res) => {
       SELECT t.id, ${await col('cuentas_cobro', 'descripcion')}, COALESCE(${await col('cuentas_cobro', 'activa', 'boolean')}, true) AS activa,
              ${await col('cuentas_cobro', 'ultimo_latido', 'timestamptz')}, ${await col('cuentas_cobro', 'ultima_notificacion', 'timestamptz')},
              ${(await kymez.tiene('cuentas_cobro', 'token_sha256')) ? '(t.token_sha256 IS NOT NULL)' : 'false'} AS tiene_token_propio,
+             ${await col('cuentas_cobro', 'vinculado_en', 'timestamptz')}, ${await col('cuentas_cobro', 'vinculado_por')},
+             ${await col('cuentas_cobro', 'vinculado_equipo')}, ${await col('cuentas_cobro', 'desvinculado_en', 'timestamptz')},
              ${(await kymez.tiene('maquinas', 'cuenta_cobro_id')) ? `(
                SELECT COALESCE(json_agg(json_build_object('equipo_id', km.machine_id, 'nombre', ${nombre}, 'codigo_kmt', ${kmt},
                                                           'en_qhapay', m.machine_id IS NOT NULL, 'activa', COALESCE(km.activa, true))
@@ -73,7 +76,10 @@ const listarCuentas = async (req, res) => {
     res.json({
       success: true,
       latido_max_min: LATIDO_MAX_MIN,
+      vigila_celulares: kymez.VIGILAR_CELULARES,
       cuentas: rows.map((c) => ({ ...c, estado: estadoCelular(c), entregado_hoy: c.entregado_hoy_cent / 100,
+        // v3.6.5 · vinculado | desvinculado | clave_propia | clave_general | desactivado
+        vinculo: vinculo.estadoVinculo(c), codigo_vigente_hasta: vigentes[c.id] || null,
         macrodroid: {
           notificacion: `${KYMEZ_PAGOS_URL}/api/yape/notificacion?telefono=${encodeURIComponent(c.id)}`,
           latido: `${KYMEZ_PAGOS_URL}/api/yape/latido?telefono=${encodeURIComponent(c.id)}`,
@@ -130,6 +136,7 @@ const editarCuenta = async (req, res) => {
     const antes = await pool.query('SELECT * FROM kymez.cuentas_cobro WHERE id = $1', [req.params.id]);
     if (!antes.rowCount) return res.status(404).json({ success: false, message: 'La cuenta no existe.' });
     await pool.query(`UPDATE kymez.cuentas_cobro SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
+    if (req.body.activa === false) await cobrosAcceso.anularDeCuenta(req.params.id);
     const a = antes.rows[0];
     await auditoria.registrar({ usuario: req.superadmin.email, accion: 'cuenta_yape_editada',
       detalle: { id: req.params.id, antes: { descripcion: a.descripcion, activa: a.activa },
@@ -273,7 +280,8 @@ const resolverIncidencias = async (req, res) => {
         if (!/^\d{4}-\d{2}-\d{2}/.test(String(req.body.antes_de))) return res.status(400).json({ success: false, message: 'Fecha inválida (usa AAAA-MM-DD).' });
         vals.push(String(req.body.antes_de)); where.push(`creado_en < ($${vals.length}::date::timestamp AT TIME ZONE '${tiempo.ZONA}')`); filtros++;
       }
-      if (!filtros) return res.status(400).json({ success: false, message: 'Elige qué incidencias resolver (por ID, tipo, máquina o fecha).' });
+      // v3.6.5: { todas: true } = "limpiar todo" (todas las abiertas)
+      if (!filtros && req.body.todas !== true) return res.status(400).json({ success: false, message: 'Elige qué incidencias resolver (por ID, tipo, máquina o fecha).' });
     }
     const sets = ['resuelta = true'];
     if (await kymez.tiene('incidencias', 'resuelta_en')) sets.push('resuelta_en = now()');
@@ -281,7 +289,7 @@ const resolverIncidencias = async (req, res) => {
     const r = await pool.query(`UPDATE kymez.incidencias SET ${sets.join(', ')} WHERE ${where.join(' AND ')} RETURNING id, machine_id`, vals);
     await auditoria.registrar({ usuario: req.superadmin.email, accion: 'incidencias_resueltas',
       machine_id: req.body.machine_id || null,
-      detalle: { cantidad: r.rowCount, ids: r.rows.slice(0, 200).map((x) => Number(x.id)), filtro: ids.length ? 'ids' : { tipo: req.body.tipo, machine_id: req.body.machine_id, antes_de: req.body.antes_de }, resolucion } });
+      detalle: { cantidad: r.rowCount, ids: r.rows.slice(0, 200).map((x) => Number(x.id)), filtro: ids.length ? 'ids' : { tipo: req.body.tipo, machine_id: req.body.machine_id, antes_de: req.body.antes_de, todas: req.body.todas === true || undefined }, resolucion } });
     res.json({ success: true, message: r.rowCount ? `${r.rowCount} incidencia(s) resuelta(s).` : 'No había incidencias abiertas con ese filtro.', resueltas: r.rowCount });
   } catch (e) { responderError(res, e, 'resolver incidencias'); }
 };
@@ -344,7 +352,7 @@ const reintentarSincronizacion = async (req, res) => {
     const vals = [];
     if (ids.length) { vals.push(ids); where.push(`v.id = ANY($${vals.length}::bigint[])`); }
     else if (req.body.machine_id) { vals.push(String(req.body.machine_id)); where.push(`v.machine_id = $${vals.length}`); }
-    else return res.status(400).json({ success: false, message: 'Elige las ventas o la máquina a reintentar.' });
+    else if (req.body.todas !== true) return res.status(400).json({ success: false, message: 'Elige las ventas o la máquina a reintentar.' });   // v3.6.5: { todas: true }
     const sets = [`qhapay_estado = 'pendiente'`];
     if (await kymez.tiene('ventas', 'qhapay_intentos')) sets.push('qhapay_intentos = 0');
     if (await kymez.tiene('ventas', 'qhapay_error')) sets.push('qhapay_error = NULL');
@@ -357,7 +365,232 @@ const reintentarSincronizacion = async (req, res) => {
   } catch (e) { responderError(res, e, 'reintentar'); }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  v3.6.5 · Varias máquinas a una cuenta, de una sola vez
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/superadmin/cuentas-yape/:id/maquinas { machine_ids: [...] }
+// Asigna (suma) esas máquinas a la cuenta. No quita las que ya tenía.
+const asignarMaquinas = async (req, res) => {
+  invalidarResumen();
+  try {
+    if (!(await kymez.tiene('maquinas', 'cuenta_cobro_id'))) return sinKymez(res);
+    const cuenta = String(req.params.id);
+    const c = await pool.query('SELECT id FROM kymez.cuentas_cobro WHERE id = $1', [cuenta]);
+    if (!c.rowCount) return res.status(404).json({ success: false, message: 'La cuenta no existe.' });
+    const ids = [...new Set((Array.isArray(req.body.machine_ids) ? req.body.machine_ids : []).map((x) => String(x || '').trim()).filter(Boolean))];
+    if (!ids.length) return res.status(400).json({ success: false, message: 'Elige al menos una máquina.' });
+    if (ids.length > 500) return res.status(400).json({ success: false, message: 'Máximo 500 máquinas por vez.' });
+    const existen = new Set((await pool.query('SELECT machine_id FROM maquinas WHERE machine_id = ANY($1)', [ids])).rows.map((x) => x.machine_id));
+    const antes = Object.fromEntries((await pool.query('SELECT machine_id, cuenta_cobro_id FROM kymez.maquinas WHERE machine_id = ANY($1)', [ids]))
+      .rows.map((x) => [x.machine_id, x.cuenta_cobro_id]));
+    const kmCols = (await kymez.estructura()).get('maquinas') || new Set();
+    const extra = [];
+    if (kmCols.has('firma_version')) extra.push(['firma_version', 1]);
+    if (kmCols.has('monto_unico')) extra.push(['monto_unico', false]);
+    const asignadas = [], omitidas = [];
+    for (const id of ids) {
+      if (!existen.has(id)) { omitidas.push({ id, motivo: 'no existe en QhaPay' }); continue; }
+      if (identidad.esEquipoPendiente(id)) { omitidas.push({ id, motivo: 'aún no tiene equipo (placa)' }); continue; }
+      if (!kymez.ID_KYMEZ.test(id)) { omitidas.push({ id, motivo: 'no es una placa KYMEZ' }); continue; }
+      await pool.query(`
+        INSERT INTO kymez.maquinas (machine_id, cuenta_cobro_id${extra.map(([k]) => ', ' + k).join('')})
+        VALUES ($1, $2${extra.map((_, i) => `, $${i + 3}`).join('')})
+        ON CONFLICT (machine_id) DO UPDATE SET cuenta_cobro_id = EXCLUDED.cuenta_cobro_id`,
+        [id, cuenta, ...extra.map(([, v]) => v)]);
+      asignadas.push({ id, antes: antes[id] || null });
+    }
+    kymez.olvidar();
+    if (asignadas.length) {
+      await auditoria.registrar({ usuario: req.superadmin.email, accion: 'maquinas_asignadas',
+        detalle: { cuenta, cantidad: asignadas.length, maquinas: asignadas.slice(0, 200) } });
+    }
+    res.json({ success: true, asignadas: asignadas.length, omitidas,
+      message: `${asignadas.length} máquina(s) asignada(s) a ${cuenta}.${omitidas.length ? ` ${omitidas.length} no se pudieron asignar.` : ''}` });
+  } catch (e) { responderError(res, e, 'asignar máquinas'); }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  v3.6.5 · Pagos por atender, con el MOTIVO probable, y limpieza en bloque
+// ─────────────────────────────────────────────────────────────────────────────
+// Un "sin máquina" puede ser tres cosas muy distintas. Se deduce mirando los pedidos (QR abiertos)
+// de las máquinas de ESE celular alrededor de la hora del pago:
+//   nadie_comprando : ninguna máquina cobraba → pago personal del dueño (no es de KYMEZ)
+//   llego_tarde     : el QR de ese monto se cerró hasta 5 min antes → pagó y no recibió
+//   ya_pagado       : ese pedido ya se había pagado → alguien pagó dos veces
+//   otro_monto      : una máquina esperaba otro monto en ese momento
+async function sqlPorAtender() {
+  const conPedidos = (await kymez.tiene('pedidos', 'monto_cobro_cent')) && (await kymez.tiene('pagos_yape', 'cuenta_cobro_id'));
+  const cuenta = (await kymez.tiene('pagos_yape', 'cuenta_cobro_id')) ? 't.cuenta_cobro_id' : 'NULL::text';
+  const motivo = conPedidos ? `CASE
+        WHEN t.estado <> 'sin_maquina' THEN t.estado
+        WHEN cerca.estado = 'pagado' THEN 'ya_pagado'
+        WHEN cerca.machine_id IS NOT NULL THEN 'llego_tarde'
+        WHEN otro.machine_id IS NOT NULL THEN 'otro_monto'
+        ELSE 'nadie_comprando' END` : 't.estado';
+  return `
+    SELECT t.id, t.recibido_en, t.estado, t.pagador, t.monto_cent, t.machine_id, ${cuenta} AS cuenta_cobro_id,
+           ${await col('pagos_yape', 'telefono')}, left(t.texto_crudo, 300) AS texto,
+           ${motivo} AS motivo,
+           ${conPedidos ? 'COALESCE(cerca.machine_id, otro.machine_id)' : 'NULL::text'} AS maquina_probable,
+           ${conPedidos ? 'otro.monto_cobro_cent' : 'NULL::int'} AS monto_esperado_cent
+    FROM kymez.pagos_yape t
+    ${conPedidos ? `
+    LEFT JOIN LATERAL (
+      SELECT p.machine_id, p.estado FROM kymez.pedidos p
+      WHERE t.estado = 'sin_maquina' AND p.cuenta_cobro_id IS NOT DISTINCT FROM t.cuenta_cobro_id
+        AND p.monto_cobro_cent = t.monto_cent AND p.estado <> 'abierto'
+        AND p.creado_en < t.recibido_en AND p.creado_en > t.recibido_en - interval '15 minutes'
+        AND COALESCE(p.cerrado_en, p.expira_en) > t.recibido_en - interval '5 minutes'
+      ORDER BY p.creado_en DESC LIMIT 1) cerca ON true
+    LEFT JOIN LATERAL (
+      SELECT p.machine_id, p.monto_cobro_cent FROM kymez.pedidos p
+      WHERE t.estado = 'sin_maquina' AND p.cuenta_cobro_id IS NOT DISTINCT FROM t.cuenta_cobro_id
+        AND p.monto_cobro_cent <> t.monto_cent
+        AND p.creado_en <= t.recibido_en AND p.creado_en > t.recibido_en - interval '15 minutes'
+        AND COALESCE(p.cerrado_en, p.expira_en) >= t.recibido_en
+      ORDER BY p.creado_en DESC LIMIT 1) otro ON true` : ''}
+    WHERE t.estado = ANY($1) AND t.recibido_en > now() - make_interval(days => $2)`;
+}
+let indicePedidos = null;
+function asegurarIndicePedidos() {
+  if (!indicePedidos) {
+    indicePedidos = (async () => {
+      if (await kymez.tiene('pedidos', 'cuenta_cobro_id')) {
+        // CONCURRENTLY: no frena los cobros mientras se crea
+        await pool.query('CREATE INDEX CONCURRENTLY IF NOT EXISTS pedidos_cuenta_creado_idx ON kymez.pedidos (cuenta_cobro_id, creado_en)');
+      }
+    })().catch((e) => { indicePedidos = null; console.warn('[superadmin] índice de pedidos:', e.message); });
+  }
+  return indicePedidos;
+}
+const MOTIVOS_VALIDOS = () => Object.keys(kymez.MOTIVOS_PAGO);
+
+// GET /api/superadmin/pagos-yape/por-atender?dias=30&cuenta=&motivo=&q=&limite=100
+const porAtender = async (req, res) => {
+  try {
+    if (!(await kymez.tiene('pagos_yape', 'estado'))) return sinKymez(res);
+    await asegurarIndicePedidos();
+    const dias = entero(req.query.dias, 30, 1, 365);
+    const limite = entero(req.query.limite, 100, 1, 500);
+    const base = await sqlPorAtender();
+    const vals = [kymez.POR_REEMBOLSAR, dias];
+    // Totales de TODO lo pendiente (no solo de la página que se muestra)
+    const grupos = await pool.query(`
+      WITH b AS (${base})
+      SELECT b.cuenta_cobro_id AS cuenta, b.motivo, count(*)::int AS n, COALESCE(sum(b.monto_cent), 0)::int AS cent, max(b.recibido_en) AS ultimo
+      FROM b GROUP BY 1, 2`, vals);
+    const where = [];
+    if (req.query.cuenta === '-') where.push('b.cuenta_cobro_id IS NULL');           // celular sin registrar
+    else if (req.query.cuenta) { vals.push(String(req.query.cuenta)); where.push(`b.cuenta_cobro_id = $${vals.length}`); }
+    if (req.query.motivo) { vals.push(String(req.query.motivo)); where.push(`b.motivo = $${vals.length}`); }
+    if (req.query.q) { vals.push(`%${String(req.query.q).trim()}%`); where.push(`(b.pagador ILIKE $${vals.length} OR b.id::text = btrim($${vals.length}, '%'))`); }
+    const lista = await pool.query(`
+      WITH b AS (${base})
+      SELECT b.*, ${await identidad.sqlNombre('m')} AS maquina_probable_nombre
+      FROM b LEFT JOIN maquinas m ON m.machine_id = COALESCE(b.maquina_probable, b.machine_id)
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY b.id DESC LIMIT ${limite + 1}`, vals);
+    const desc = (await kymez.tiene('cuentas_cobro', 'descripcion'))
+      ? Object.fromEntries((await pool.query('SELECT id, descripcion FROM kymez.cuentas_cobro')).rows.map((x) => [x.id, x.descripcion])) : {};
+    const porMotivo = {}, porCuenta = {};
+    let total = 0, totalCent = 0;
+    for (const g of grupos.rows) {
+      total += g.n; totalCent += g.cent;
+      const m = (porMotivo[g.motivo] = porMotivo[g.motivo] || { motivo: g.motivo, ...kymez.describirMotivo(g.motivo), cantidad: 0, cent: 0 });
+      m.cantidad += g.n; m.cent += g.cent;
+      const k = g.cuenta || '-';
+      const c = (porCuenta[k] = porCuenta[k] || { cuenta: g.cuenta, descripcion: g.cuenta ? (desc[g.cuenta] || null) : 'Celular sin registrar', cantidad: 0, cent: 0, ultimo: null, por_motivo: {} });
+      c.cantidad += g.n; c.cent += g.cent; c.por_motivo[g.motivo] = g.n;
+      if (!c.ultimo || g.ultimo > c.ultimo) c.ultimo = g.ultimo;
+    }
+    const fin = (x) => { const { cent, ...r } = x; return { ...r, monto: cent / 100 }; };
+    res.json({
+      success: true, dias, total: { cantidad: total, monto: totalCent / 100 },
+      por_motivo: Object.values(porMotivo).map(fin).sort((a, b) => b.cantidad - a.cantidad),
+      por_cuenta: Object.values(porCuenta).map(fin).sort((a, b) => b.cantidad - a.cantidad),
+      hay_mas: lista.rows.length > limite,
+      pagos: lista.rows.slice(0, limite).map((p) => ({ ...p, monto: (p.monto_cent || 0) / 100,
+        monto_esperado: p.monto_esperado_cent ? p.monto_esperado_cent / 100 : null,
+        estado_texto: kymez.describirPago(p.estado).texto, motivo_titulo: kymez.describirMotivo(p.motivo).titulo,
+        motivo_ayuda: kymez.describirMotivo(p.motivo).ayuda, sugerencia: kymez.describirMotivo(p.motivo).sugerencia })),
+    });
+  } catch (e) { responderError(res, e, 'pagos por atender'); }
+};
+
+// POST /api/superadmin/pagos-yape/atender
+//   { accion: 'archivar' | 'reembolsado', nota?,  ids: [..] }                       ← los elegidos
+//   { accion, nota?, cuenta?, motivo?, dias? }  o  { accion, nota?, todos: true }   ← "limpiar todo"
+// No borra nada: el pago queda 'archivado' o 'reembolsado', con quién y cuándo, y se cierran sus incidencias.
+const atenderPagos = async (req, res) => {
+  invalidarResumen();
+  const b = req.body || {};
+  const accion = b.accion === 'reembolsado' ? 'reembolsado' : b.accion === 'archivar' ? 'archivado' : null;
+  if (!accion) return res.status(400).json({ success: false, message: 'Indica qué hacer: archivar o reembolsado.' });
+  const nota = identidad.limpiar(b.nota).slice(0, 300);
+  const ids = Array.isArray(b.ids) ? b.ids.map((x) => parseInt(x, 10)).filter(Number.isInteger) : [];
+  if (!ids.length && !b.cuenta && !b.motivo && b.todos !== true) {
+    return res.status(400).json({ success: false, message: 'Elige los pagos, o un celular o motivo, o confirma que son todos.' });
+  }
+  if (b.motivo && !MOTIVOS_VALIDOS().includes(String(b.motivo))) return res.status(400).json({ success: false, message: 'Motivo desconocido.' });
+  if (!(await kymez.tiene('pagos_yape', 'estado'))) return sinKymez(res);
+  const dias = entero(b.dias, 365, 1, 365);
+  const client = await pool.connect();
+  try {
+    const vals = [kymez.POR_REEMBOLSAR, dias];
+    const where = [];
+    if (ids.length) { vals.push(ids); where.push(`b.id = ANY($${vals.length}::bigint[])`); }
+    else {
+      if (b.cuenta === '-') where.push('b.cuenta_cobro_id IS NULL');
+      else if (b.cuenta) { vals.push(String(b.cuenta)); where.push(`b.cuenta_cobro_id = $${vals.length}`); }
+      if (b.motivo) { vals.push(String(b.motivo)); where.push(`b.motivo = $${vals.length}`); }
+    }
+    const conDatos = await kymez.tiene('pagos_yape', 'datos');
+    vals.push(accion);
+    const pEstado = vals.length;
+    let setDatos = '';
+    if (conDatos) {
+      vals.push(JSON.stringify({ accion, por: req.superadmin.email, nota: nota || undefined, en: new Date().toISOString() }));
+      setDatos = `, datos = COALESCE(t.datos, '{}'::jsonb) || jsonb_build_object('atendido', $${vals.length}::jsonb || jsonb_build_object('estado_anterior', t.estado, 'motivo', b.motivo))`;
+    }
+    await client.query('BEGIN');
+    const r = await client.query(`
+      WITH b AS (${await sqlPorAtender()})
+      UPDATE kymez.pagos_yape t SET estado = $${pEstado}${setDatos}
+      FROM b WHERE t.id = b.id AND t.estado = ANY($1) ${where.length ? 'AND ' + where.join(' AND ') : ''}
+      RETURNING t.id, t.monto_cent, b.motivo`, vals);
+    const hechos = r.rows.map((x) => Number(x.id));
+    let resueltas = 0;
+    if (hechos.length && (await kymez.tiene('incidencias', 'pago_id'))) {
+      const sets = ['resuelta = true'];
+      const v2 = [hechos];
+      if (await kymez.tiene('incidencias', 'resuelta_en')) sets.push('resuelta_en = now()');
+      if (await kymez.tiene('incidencias', 'resolucion')) {
+        v2.push(`${accion === 'reembolsado' ? 'Reembolsado' : 'Archivado'} (${req.superadmin.email})${nota ? ': ' + nota : ''}`);
+        sets.push(`resolucion = $${v2.length}`);
+      }
+      const inc = await client.query(`UPDATE kymez.incidencias SET ${sets.join(', ')} WHERE pago_id = ANY($1::bigint[]) AND NOT resuelta`, v2);
+      resueltas = inc.rowCount;
+    }
+    await client.query('COMMIT');
+    const cent = r.rows.reduce((s2, x) => s2 + (x.monto_cent || 0), 0);
+    if (hechos.length) {
+      await auditoria.registrar({ usuario: req.superadmin.email, accion: 'pagos_atendidos',
+        detalle: { accion, cantidad: hechos.length, monto: cent / 100, nota,
+          filtro: ids.length ? 'ids' : { cuenta: b.cuenta, motivo: b.motivo, todos: b.todos === true || undefined, dias },
+          ids: hechos.slice(0, 300), incidencias_resueltas: resueltas } });
+    }
+    res.json({ success: true, atendidos: hechos.length, monto: cent / 100, incidencias_resueltas: resueltas,
+      message: hechos.length
+        ? `${hechos.length} pago(s) ${accion === 'reembolsado' ? 'marcado(s) como reembolsado(s)' : 'archivado(s)'} (S/ ${(cent / 100).toFixed(2)}).`
+        : 'No había pagos pendientes con ese filtro.' });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    responderError(res, e, 'atender pagos');
+  } finally { client.release(); }
+};
+
 module.exports = {
+  asignarMaquinas, porAtender, atenderPagos,
   listarCuentas, crearCuenta, editarCuenta,
   listarPagos, marcarReembolsado,
   listarIncidencias, resolverIncidencias,

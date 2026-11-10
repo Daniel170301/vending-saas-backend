@@ -16,7 +16,7 @@
 //   avisar  deja pasar las peticiones sin sesión como antes, pero las anota en el log
 //           ("[sesion] SIN SESIÓN ..."). Solo para la transición: úsalo 1 o 2 días mientras
 //           actualizas QhaPay en Lovable y luego bórralo.
-const { leerToken, MENSAJES, ROLES_SUPERADMIN } = require('./auth');
+const { leerToken, revocado, MENSAJES, ROLES_SUPERADMIN } = require('./auth');
 const { usuarioPorEmail } = require('./usuarios');
 const { buscarOperario } = require('./operarios');
 
@@ -133,6 +133,9 @@ function sesion(opciones = {}) {
         const u = await usuarioPorEmail(email);
         if (!u || u.rol === 'eliminado') {
           return res.status(401).json({ success: false, codigo: 'invalido', message: MENSAJES.invalido });
+        }
+        if (revocado(u, t.datos)) {   // v3.6.4: "cerrar sesión en todos los dispositivos" o contraseña cambiada
+          return res.status(401).json({ success: false, codigo: 'cerrada', message: MENSAJES.cerrada });
         }
         req.usuario = {
           id: String(u.id),

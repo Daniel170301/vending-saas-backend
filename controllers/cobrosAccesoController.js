@@ -1,5 +1,8 @@
-// controllers/cobrosAccesoController.js  (v3.6.1) · ver utils/cobrosAcceso.js
+// controllers/cobrosAccesoController.js  (v3.6.1 · v3.6.5) · ver utils/cobrosAcceso.js y utils/cobrosVinculo.js
 const acceso = require('../utils/cobrosAcceso');
+const vinculo = require('../utils/cobrosVinculo');
+const kymez = require('../services/kymez');
+const pool = require('../config/database');
 const limite = require('../utils/limite');
 const auditoria = require('../utils/auditoria');
 
@@ -16,7 +19,8 @@ function sinCodigo(u) {
 const estado = (req, res) => {
   const u = req.usuario;
   if (u.operario || u.rol === 'operario') return res.status(403).json({ success: false, message: 'Esta pantalla no está disponible para operarios.' });
-  res.json({ success: true, requiere_codigo: !(u.superadmin || sinCodigo(u)), minutos_abierto: acceso.MINUTOS_ABIERTO });
+  // vinculacion: este servidor acepta POST /api/cobros/vincular (el código configura el celular solo)
+  res.json({ success: true, requiere_codigo: !(u.superadmin || sinCodigo(u)), minutos_abierto: acceso.MINUTOS_ABIERTO, vinculacion: true });
 };
 
 // POST /api/cobros/acceso { codigo }
@@ -44,7 +48,70 @@ const abrir = async (req, res) => {
   }
 };
 
+// POST /api/cobros/vincular { codigo, equipo? }  (v3.6.5)
+// El código de la cuenta (cel-N) configura el celular: devuelve la clave UNA sola vez.
+// La app la pasa directo al lector del celular; no se muestra ni se guarda en la web.
+const vincular = async (req, res) => {
+  const u = req.usuario;
+  if (u.operario || u.rol === 'operario') return res.status(403).json({ success: false, message: 'Esta pantalla no está disponible para operarios.' });
+  const clave = `cobros:${u.id}`;
+  const espera = limite.bloqueado(req, clave);
+  if (espera) return res.status(429).json({ success: false, message: `Demasiados intentos. Espera ${espera} minuto(s) y vuelve a probar.` });
+  try {
+    const r = await vinculo.vincular({ codigo: (req.body || {}).codigo, email: u.email, equipo: (req.body || {}).equipo });
+    if (!r) {
+      limite.fallo(req, clave);
+      return res.status(400).json({ success: false, message: 'Código incorrecto, vencido o ya usado. Pide uno nuevo a KYMEZ.' });
+    }
+    if (r.error === 'sin_kymez') return res.status(503).json({ success: false, message: 'El servidor de pagos no está disponible. Avisa a KYMEZ.' });
+    if (r.error) return res.status(409).json({ success: false, message: 'Esa cuenta de cobro está desactivada. Avisa a KYMEZ.' });
+    limite.exito(req, clave);
+    auditoria.registrar({ usuario: u.email, accion: 'celular_vinculado', detalle: { cuenta: r.telefono, codigo_id: r.codigo_id, equipo: (req.body || {}).equipo || null } });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, cuenta: { telefono: r.telefono, nombre: r.nombre, token: r.token },
+      message: `Celular vinculado a ${r.nombre}.` });
+  } catch (e) {
+    console.error('[cobros] vincular:', e.message);
+    res.status(500).json({ success: false, message: 'Error del servidor' });
+  }
+};
+
 // ---------- Superadmin ----------
+
+// POST /api/superadmin/cuentas-yape/:id/codigo { minutos? }  (v3.6.5) → código para vincular ESE celular
+const generarParaCuenta = async (req, res) => {
+  try {
+    if (!(await vinculo.asegurarColumnas())) return res.status(503).json({ success: false, message: 'Esta base de datos no tiene las tablas de kymez-pagos.' });
+    const c = await pool.query('SELECT id, COALESCE(activa, true) AS activa FROM kymez.cuentas_cobro WHERE id = $1', [req.params.id]);
+    if (!c.rowCount) return res.status(404).json({ success: false, message: 'La cuenta no existe.' });
+    if (!c.rows[0].activa) return res.status(409).json({ success: false, message: 'La cuenta está desactivada: actívala primero.' });
+    const b = req.body || {};
+    const r = await acceso.generar({ minutos: b.minutos, nota: `Vincular ${c.rows[0].id}`, creadoPor: req.superadmin.email, cuentaId: c.rows[0].id });
+    auditoria.registrar({ usuario: req.superadmin.email, accion: 'vinculo_codigo_creado', detalle: { cuenta: c.rows[0].id, codigo_id: r.id, minutos: r.minutos } });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, ...r, message: 'Díctale este código al cliente: sirve una sola vez y no se vuelve a mostrar.' });
+  } catch (e) {
+    console.error('[cobros] código de cuenta:', e.message);
+    res.status(500).json({ success: false, message: 'Error del servidor' });
+  }
+};
+
+// POST /api/superadmin/cuentas-yape/:id/desvincular { modo?: 'bloquear' | 'clave_general' }  (v3.6.5)
+const desvincular = async (req, res) => {
+  try {
+    const modo = (req.body || {}).modo === 'clave_general' ? 'clave_general' : 'bloquear';
+    const r = await vinculo.desvincular(req.params.id, modo);
+    if (!r) return res.status(404).json({ success: false, message: 'La cuenta no existe.' });
+    auditoria.registrar({ usuario: req.superadmin.email, accion: 'celular_desvinculado', detalle: { cuenta: r.id, modo: r.modo } });
+    kymez.olvidar();
+    res.json({ success: true, ...r, message: modo === 'clave_general'
+      ? `${r.id} vuelve a aceptar la clave general (MacroDroid).`
+      : `${r.id} desvinculado: ese celular ya no puede enviar pagos. Para volver a usarlo, genera un código nuevo.` });
+  } catch (e) {
+    console.error('[cobros] desvincular:', e.message);
+    res.status(500).json({ success: false, message: 'Error del servidor' });
+  }
+};
 
 // POST /api/superadmin/cobros-codigos { minutos?, nota? } → el código se muestra UNA vez
 const generar = async (req, res) => {
@@ -79,4 +146,4 @@ const anular = async (req, res) => {
   }
 };
 
-module.exports = { estado, abrir, generar, listar, anular };
+module.exports = { estado, abrir, vincular, generar, generarParaCuenta, desvincular, listar, anular };

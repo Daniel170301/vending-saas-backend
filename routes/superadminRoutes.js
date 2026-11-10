@@ -29,6 +29,11 @@ router.post('/huerfanos/mover', flota.moverHuerfanos);
 router.get('/cuentas-yape', yape.listarCuentas);
 router.post('/cuentas-yape', yape.crearCuenta);
 router.put('/cuentas-yape/:id', yape.editarCuenta);
+router.post('/cuentas-yape/:id/codigo', cobrosAcceso.generarParaCuenta);     // v3.6.5
+router.post('/cuentas-yape/:id/desvincular', cobrosAcceso.desvincular);      // v3.6.5
+router.put('/cuentas-yape/:id/maquinas', yape.asignarMaquinas);              // v3.6.5
+router.get('/pagos-yape/por-atender', yape.porAtender);                      // v3.6.5
+router.post('/pagos-yape/atender', yape.atenderPagos);                       // v3.6.5
 router.get('/pagos-yape', yape.listarPagos);
 router.post('/pagos-yape/:id/reembolsado', yape.marcarReembolsado);
 router.get('/incidencias', yape.listarIncidencias);

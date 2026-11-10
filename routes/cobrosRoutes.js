@@ -5,5 +5,6 @@ const c = require('../controllers/cobrosAccesoController');
 
 router.get('/acceso', c.estado);
 router.post('/acceso', c.abrir);
+router.post('/vincular', c.vincular);          // v3.6.5
 
 module.exports = router;

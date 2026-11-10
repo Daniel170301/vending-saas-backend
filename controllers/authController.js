@@ -8,7 +8,7 @@ const clave = require('../utils/clave');
 const limite = require('../utils/limite');
 const { verificarTokenGoogle } = require('../utils/google');
 const { verificarIdTokenGoogle } = require('../utils/googleId');
-const { olvidar } = require('../utils/usuarios');
+const { olvidar, cerrarSesiones } = require('../utils/usuarios');
 
 const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const correoDe = (b) => String((b && (b.email || b.correo)) || '').trim().toLowerCase();
@@ -156,6 +156,7 @@ const restablecer = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No hay una cuenta de QhaPay con ese correo. Crea una cuenta.' });
     }
     await pool.query('UPDATE usuarios_duenos SET password = $1 WHERE id = $2', [await clave.hashear(String(req.body.nueva)), user.id]);
+    await cerrarSesiones(user.id, g.email);   // v3.6.4: quien tenía la clave vieja queda fuera
     limite.exito(req, g.email);
     olvidar(g.email);
     responderSesion(res, user, 'Contraseña actualizada');

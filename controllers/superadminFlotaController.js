@@ -226,12 +226,8 @@ async function resumenYape() {
   return r;
 }
 
-const LATIDO_MAX_MIN = Number(process.env.CELULAR_LATIDO_MAX_MIN || 12);
-function estadoCelular(c) {
-  if (c.activa === false) return 'desactivado';
-  if (!c.ultimo_latido) return 'sin_latido_configurado';
-  return Date.now() - new Date(c.ultimo_latido).getTime() > LATIDO_MAX_MIN * 60000 ? 'sin_latido' : 'en_linea';
-}
+// v3.6.5: el estado del celular ya no depende del latido (ver services/kymez.js)
+const estadoCelular = kymez.estadoCelular;
 
 async function resumenSincronizacion() {
   const r = { pendientes: 0, error: 0, omitidas: 0, sincronizadas_hoy: 0 };
@@ -288,8 +284,9 @@ function listaAtencion(flota, yape, sinc, inc) {
     prioridad: 'alta', tipo: 'fuera_de_linea', uno: (m) => `${m.name} está fuera de línea`,
     varios: (n) => `${n} máquinas fuera de línea`, detalle: 'La placa no reporta: revisa luz e internet en el punto.',
     desde: (m) => m.conexion.visto_en });
-  const celulares = yape.celulares.filter((x) => x.estado === 'sin_latido');
-  if (celulares.length <= 3) {
+  // v3.6.5: sin alertas por el celular del cliente, salvo que se pida vigilarlos (CELULAR_VIGILAR=si)
+  const celulares = kymez.VIGILAR_CELULARES ? yape.celulares.filter((x) => x.estado === 'sin_latido') : [];
+  if (!celulares.length) { /* nada */ } else if (celulares.length <= 3) {
     for (const c of celulares) {
       a.push({ prioridad: 'alta', tipo: 'celular_sin_latido', cuenta_cobro_id: c.id,
         titulo: `El celular ${c.descripcion || c.id} dejó de reportar`, detalle: 'Los Yapes a ese celular no llegan a ninguna máquina.', desde: c.ultimo_latido });

@@ -79,6 +79,7 @@ const ESTADOS_PAGO = {
   sin_maquina:        ['Sin máquina', 'rojo'],
   posible_duplicado:  ['Posible duplicado', 'ambar'],
   duplicado_exacto:   ['Notificación repetida', 'gris'],
+  archivado:          ['Archivado', 'gris'],              // v3.6.5: revisado, no requiere reembolso
 };
 const POR_REEMBOLSAR = ['reembolsar', 'reembolsar_parcial', 'no_entregado', 'sin_maquina', 'posible_duplicado'];
 function describirPago(estado) {
@@ -86,7 +87,36 @@ function describirPago(estado) {
   return d ? { texto: d[0], color: d[1] } : { texto: String(estado || '—'), color: 'gris' };
 }
 
+// v3.6.5 · KYMEZ ya no vigila los celulares de los clientes (el latido se quitó).
+// Para volver a vigilarlos: CELULAR_VIGILAR=si en Render (y lo mismo en kymez-pagos).
+const VIGILAR_CELULARES = process.env.CELULAR_VIGILAR === 'si';
+const LATIDO_MAX_MIN = Number(process.env.CELULAR_LATIDO_MAX_MIN || 12);
+function estadoCelular(c) {
+  if (c.activa === false) return 'desactivado';
+  // 'sin_latido_configurado' es un valor que la app anterior ya conoce (no la rompe)
+  if (!VIGILAR_CELULARES || !c.ultimo_latido) return 'sin_latido_configurado';
+  return Date.now() - new Date(c.ultimo_latido).getTime() > LATIDO_MAX_MIN * 60000 ? 'sin_latido' : 'en_linea';
+}
+
+// Por qué un pago quedó "por atender": [título, explicación, qué se sugiere]
+const MOTIVOS_PAGO = {
+  nadie_comprando:    ['No era de máquina', 'Ninguna máquina de ese celular estaba cobrando en ese momento. Casi siempre es un pago personal del dueño del celular.', 'archivar'],
+  llego_tarde:        ['Llegó tarde', 'El QR de ese monto ya se había cerrado en la máquina cuando llegó el pago. El cliente pagó y no recibió.', 'reembolsar'],
+  ya_pagado:          ['Pago repetido', 'Ese pedido ya estaba pagado: alguien pagó dos veces el mismo monto.', 'reembolsar'],
+  otro_monto:         ['Monto distinto', 'Una máquina de ese celular esperaba otro monto.', 'reembolsar'],
+  sin_maquina:        ['Sin máquina', 'Ninguna máquina esperaba ese monto.', 'revisar'],
+  no_entregado:       ['No llegó a la máquina', 'La máquina no confirmó el saldo (apagada o sin internet).', 'reembolsar'],
+  reembolsar:         ['Por reembolsar', 'El cliente pagó y no compró, o el monto era mayor al permitido.', 'reembolsar'],
+  reembolsar_parcial: ['Reembolsar excedente', 'El cliente pagó de más: se devuelve la diferencia.', 'reembolsar'],
+  posible_duplicado:  ['Posible duplicado', 'Mismo cliente y mismo monto en pocos segundos. Mira en Yape si pagó dos veces.', 'revisar'],
+};
+function describirMotivo(m) {
+  const d = MOTIVOS_PAGO[m];
+  return d ? { titulo: d[0], ayuda: d[1], sugerencia: d[2] } : { titulo: String(m || '—').replace(/_/g, ' '), ayuda: '', sugerencia: 'revisar' };
+}
+
 module.exports = {
+  VIGILAR_CELULARES, LATIDO_MAX_MIN, estadoCelular, MOTIVOS_PAGO, describirMotivo,
   estructura, tiene, olvidar, ID_KYMEZ, SQL_EN_LINEA,
   INCIDENCIAS, describirIncidencia, ESTADOS_PAGO, POR_REEMBOLSAR, describirPago,
 };

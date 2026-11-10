@@ -16,7 +16,8 @@
 //                 un registro anónimo "Cuenta eliminada" sin correo, nombre, documento ni teléfono.
 const pool = require('../config/database');
 const clave = require('../utils/clave');
-const { olvidar } = require('../utils/usuarios');
+const { olvidar, cerrarSesiones } = require('../utils/usuarios');
+const { firmarToken } = require('../utils/auth');
 const auditoria = require('../utils/auditoria');
 
 const existeTabla = async (c, t) => (await c.query('SELECT to_regclass($1) AS r', [`public.${t}`])).rows[0].r !== null;
@@ -184,7 +185,7 @@ const cambiarContrasena = async (req, res) => {
     if (req.usuario.operario) return res.status(403).json({ success: false, message: 'Los operarios cambian su contraseña en su perfil de operario.' });
     if (req.usuario.soporte) return res.status(403).json({ success: false, message: 'En modo soporte no se cambia la contraseña del cliente.' });
     const b = req.body || {};
-    const u = (await pool.query('SELECT id, password FROM usuarios_duenos WHERE id::text = $1', [req.usuario.id])).rows[0];
+    const u = (await pool.query('SELECT id, email, nombre, rol, password FROM usuarios_duenos WHERE id::text = $1', [req.usuario.id])).rows[0];
     if (!u) return res.status(404).json({ success: false, message: 'La cuenta no existe' });
     // v3.6: una cuenta creada con Google puede CREAR su contraseña (sin "actual"), para entrar
     // también con correo y contraseña (por ejemplo, en la app del celular)
@@ -196,7 +197,16 @@ const cambiarContrasena = async (req, res) => {
     const malo = clave.validarNueva(b.nueva);
     if (malo) return res.status(400).json({ success: false, message: malo });
     await pool.query('UPDATE usuarios_duenos SET password = $1 WHERE id = $2', [await clave.hashear(String(b.nueva)), u.id]);
-    res.json({ success: true, message: esGoogle ? 'Contraseña creada: ya puedes entrar también con tu correo' : 'Contraseña actualizada' });
+    // v3.6.4: al CAMBIAR la clave se cierran las sesiones de los otros dispositivos; este recibe un token nuevo.
+    // Al CREARLA (cuenta de Google) no hace falta: nadie más podía conocerla.
+    let token;
+    if (!esGoogle) {
+      await cerrarSesiones(u.id, u.email);
+      token = firmarToken(u);
+    }
+    res.json({ success: true, token,
+      message: esGoogle ? 'Contraseña creada: ya puedes entrar también con tu correo'
+        : 'Contraseña actualizada. Se cerró la sesión en tus otros dispositivos.' });
   } catch (e) {
     console.error('[cuenta] contraseña:', e.message);
     res.status(500).json({ success: false, message: 'Error del servidor' });
@@ -216,4 +226,20 @@ const estadoContrasena = async (req, res) => {
   }
 };
 
-module.exports = { verEliminacion, eliminarCuenta, cambiarContrasena, estadoContrasena };
+// POST /api/cuenta/cerrar-sesiones  (v3.6.4) → cierra la sesión en TODOS los dispositivos y
+// devuelve un token nuevo para el que hizo el pedido (así este sigue dentro).
+const cerrarOtrasSesiones = async (req, res) => {
+  try {
+    if (!req.usuario || req.usuario.operario) return res.status(403).json({ success: false, message: 'Solo para cuentas de dueño.' });
+    if (req.usuario.soporte) return res.status(403).json({ success: false, message: 'En modo soporte no se cierran las sesiones del cliente.' });
+    const u = (await pool.query('SELECT id, email, nombre, rol FROM usuarios_duenos WHERE id::text = $1', [req.usuario.id])).rows[0];
+    if (!u) return res.status(404).json({ success: false, message: 'La cuenta no existe' });
+    await cerrarSesiones(u.id, u.email);
+    res.json({ success: true, token: firmarToken(u), message: 'Listo: se cerró la sesión en tus otros dispositivos.' });
+  } catch (e) {
+    console.error('[cuenta] cerrar sesiones:', e.message);
+    res.status(500).json({ success: false, message: 'Error del servidor' });
+  }
+};
+
+module.exports = { verEliminacion, eliminarCuenta, cambiarContrasena, estadoContrasena, cerrarOtrasSesiones };
