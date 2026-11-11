@@ -247,3 +247,42 @@ Probado: `t364.js` (22 comprobaciones, incluida la base sin la columna nueva) m�
 Archivos: `utils/cobrosVinculo.js` (nuevo), `utils/cobrosAcceso.js`, `utils/auditoria.js`, `services/kymez.js`, `controllers/cobrosAccesoController.js`, `controllers/superadminYapeController.js`, `controllers/superadminFlotaController.js`, `routes/cobrosRoutes.js`, `routes/superadminRoutes.js`.
 
 Probado: `t365.js` (82 comprobaciones; la huella se compara con el `firma.js` real de kymez-pagos) más `t364` (22), `t363` (31), `t361` (23), `t36` (108) y `t35` (92).
+
+## 14. v3.6.6 · Formulario de alta de máquinas (página pública) y Superadmin › Solicitudes
+
+**Público, sin sesión:** `POST /api/solicitudes`. Lo usa la página `/registro` de QhaPay (el link o QR del afiche).
+- Pide: datos de contacto (nombre, WhatsApp, correo = su usuario de QhaPay), lugar y dirección, tipo de máquina (`TCN`, `SNAKKY`, `KIKKO`, `SAMBA`, `OTRA`), WiFi 1 y 2, número que recibirá los pagos (Yape/Plin) y el texto del QR de Yape (la página lo lee de la captura), más datos opcionales (empresa, RUC, tipo de lugar, ubicación en mapa, horario, monedero/billetero/MDB, señal del WiFi, enchufe, celular Android).
+- Exige aceptar los requisitos y el uso de datos. Campo trampa `sitio_web` contra robots. Freno: 5 por IP por hora (`SOLICITUDES_MAX_IP_HORA`) y 200 por hora en total (`SOLICITUDES_MAX_HORA`).
+- **La contraseña del WiFi se guarda cifrada** (AES-256-GCM, `utils/cifrado.js`; llave `SOLICITUDES_CLAVE` de 64 hex o derivada de `JWT_SECRET`). Se borra sola al rechazar, al marcar instalada o a los 90 días si nadie la atendió.
+- El QR se revisa (formato EMV y código de control). Si está mal copiado se guarda igual con `qr_valido = false`.
+
+**Superadmin:**
+- `GET /api/superadmin/solicitudes?estado=&q=` devuelve la lista y el conteo por estado, sin claves.
+- `GET /:id` devuelve la ficha con sugerencias:
+  - el siguiente MACHINE_ID del tipo (`SNAKKY-0006`);
+  - el dueño si ya existe ese correo;
+  - el celular de cobro: si ese número de Yape ya cobra para otra solicitud, sugiere **el mismo** (un Yape = una cuenta).
+- `POST /:id/ver-claves` muestra el WiFi en claro y el usuario y clave MQTT de HiveMQ. Queda en Auditoría.
+- `POST /:id/aprobar { machine_id?, nombre_maquina?, dueno: {modo: existente|crear, email?}, cuenta_cobro: {modo: nueva|existente|ninguna, id?, descripcion?} }` hace todo en una transacción:
+  - crea la máquina en QhaPay;
+  - crea el dueño si no existe (`google_oauth`: entra con Google o con "¿Olvidaste tu contraseña?");
+  - crea o elige el celular de cobro y la fila en `kymez.maquinas`;
+  - genera la clave MQTT de la placa (cifrada).
+- `GET /:id/maquina.h` (o `?formato=json`) es el archivo para `include/` del firmware:
+  - MACHINE_ID, WiFi, usuario y clave MQTT, QR de Yape, teléfono de soporte (`SOPORTE_TELEFONO` en Render);
+  - en las Necta, el perfil (Snakky 65535/0, Kikko 1/+1 con **precios del planograma**, Samba provisional).
+  - Trae `avisos` (falta QR, Kikko sin precios, clave WiFi ya borrada…).
+- `POST /:id/rechazar { motivo }`, `POST /:id/instalada`, `PUT /:id/notas`.
+- El resumen del Panel trae `solicitudes: { pendientes, aprobadas }` para el contador de la barra lateral.
+
+**Firmware:** agrega UNA vez al final de cada `config.h`:
+```
+#if __has_include("maquina.h")
+#include "maquina.h"
+#endif
+```
+Con eso, el `maquina.h` descargado reemplaza los valores de esa máquina. Ver `LEEME-maquina.md`.
+
+Archivos: `utils/cifrado.js`, `utils/qrYape.js`, `services/solicitudes.js`, `controllers/solicitudesController.js` y `routes/solicitudesRoutes.js` (nuevos), además de `app.js`, `server.js`, `routes/superadminRoutes.js`, `controllers/superadminFlotaController.js` y `utils/auditoria.js`.
+
+Probado con `t366.js` (54 comprobaciones). Los `maquina.h` generados compilan en Snakky y Kikko 6.7, y el binario usa sus valores. Siguen pasando t365, t364, t363, t361, t36 y t35.

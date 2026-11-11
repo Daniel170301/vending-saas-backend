@@ -337,11 +337,21 @@ function agrupar(flota, clave, nombre) {
 }
 
 // GET /api/superadmin/resumen
+// v3.6.6 · solicitudes de alta por revisar (contador de la barra lateral)
+async function resumenSolicitudes() {
+  try {
+    const r = await pool.query(`SELECT count(*) FILTER (WHERE estado = 'pendiente')::int AS pendientes,
+      count(*) FILTER (WHERE estado = 'aprobada')::int AS aprobadas FROM solicitudes_maquina`);
+    return r.rows[0];
+  } catch { return { pendientes: 0, aprobadas: 0 }; }   // tabla aún no creada
+}
+
 const resumen = async (req, res) => {
   try {
     if (cacheResumen && cacheResumen.vence > Date.now() && req.query.fresco !== '1') return res.json(cacheResumen.cuerpo);
-    const [flota, dias, mes, yape, sinc, inc] = await Promise.all([
+    const [flota, dias, mes, yape, sinc, inc, solic] = await Promise.all([
       consultarFlota(), ventasPorDia(14), ventasMes(), resumenYape(), resumenSincronizacion(), resumenIncidencias(),
+      resumenSolicitudes(),
     ]);
     const suma = (f) => flota.reduce((s, x) => s + f(x), 0);
     const kymezFlota = flota.filter((x) => x.tipo_equipo === 'kymez');
@@ -374,6 +384,7 @@ const resumen = async (req, res) => {
       yape,
       sincronizacion: sinc,
       incidencias: inc,
+      solicitudes: solic,                                    // v3.6.6: { pendientes, aprobadas }
       por_region: agrupar(flota, (x) => x.region_id || 0,
         (x) => ({ region_id: x.region_id || null, nombre: x.region_nombre || 'Sin región' })),
       por_dueno: agrupar(flota, (x) => String(x.dueno.id ?? ''),

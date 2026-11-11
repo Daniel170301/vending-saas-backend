@@ -64,6 +64,7 @@ app.use('/api/convenio', require('./routes/convenioRoutes'));   // convenios y v
 app.use('/api/operarios', sesion({ siempre: true, publicas: [['POST', /^\/(registro|login)\/?$/]] }), require('./routes/operarioRoutes'));
 app.use('/api/asistente', sesion({ siempre: true }), maquinasPropias, require('./routes/asistenteRoutes'));
 app.use('/api/cobros', sesion({ siempre: true }), require('./routes/cobrosRoutes'));   // v3.6.1: acceso a Celular de cobro
+app.use('/api/solicitudes', require('./routes/solicitudesRoutes'));   // v3.6.6: formulario público de alta de máquinas
 
 // Ruta base de prueba
 app.get('/', (req, res) => {

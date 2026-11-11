@@ -8,6 +8,7 @@ const yape = require('../controllers/superadminYapeController');
 const catalogo = require('../controllers/superadminCatalogoController');
 const clientes = require('../controllers/superadminClientesController');
 const cobrosAcceso = require('../controllers/cobrosAccesoController');
+const solicitudes = require('../controllers/solicitudesController');
 
 router.use(soloSuperadmin);
 
@@ -34,6 +35,15 @@ router.post('/cuentas-yape/:id/desvincular', cobrosAcceso.desvincular);      // 
 router.put('/cuentas-yape/:id/maquinas', yape.asignarMaquinas);              // v3.6.5
 router.get('/pagos-yape/por-atender', yape.porAtender);                      // v3.6.5
 router.post('/pagos-yape/atender', yape.atenderPagos);                       // v3.6.5
+// v3.6.6 · Solicitudes de alta (formulario público /registro)
+router.get('/solicitudes', solicitudes.listar);
+router.get('/solicitudes/:id', solicitudes.ver);
+router.post('/solicitudes/:id/ver-claves', solicitudes.verClaves);
+router.post('/solicitudes/:id/aprobar', solicitudes.aprobar);
+router.get('/solicitudes/:id/maquina.h', solicitudes.maquinaH);
+router.post('/solicitudes/:id/rechazar', solicitudes.rechazar);
+router.post('/solicitudes/:id/instalada', solicitudes.instalada);
+router.put('/solicitudes/:id/notas', solicitudes.notas);
 router.get('/pagos-yape', yape.listarPagos);
 router.post('/pagos-yape/:id/reembolsado', yape.marcarReembolsado);
 router.get('/incidencias', yape.listarIncidencias);
